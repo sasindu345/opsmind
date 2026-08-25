@@ -116,7 +116,7 @@ curl -X POST http://localhost:8000/api/v1/analyze/logs \
 | `GET`  | `/healthz` | Liveness probe |
 | `GET`  | `/readyz` | Readiness probe — reports which subsystems are configured |
 
-> Only `/healthz` and `/readyz` exist today (Phase 0). The remaining routes land in Phases 1–3 — see [PLAN.md](PLAN.md).
+> `/healthz`, `/readyz` and `/api/v1/analyze/logs` are live (Phases 0–1). The webhook and incident routes land in Phases 2–3 — see [PLAN.md](PLAN.md).
 
 ---
 
@@ -150,12 +150,15 @@ opsmind/
 │   ├── main.py                  # FastAPI server entry point
 │   ├── api/
 │   │   ├── __init__.py
+│   │   ├── schemas.py           # Request models (LogBatch)
 │   │   ├── routes_logs.py       # Log ingestion endpoints
 │   │   ├── routes_metrics.py    # Metric ingestion & Prometheus webhooks
 │   │   └── routes_github.py     # GitHub Actions / deployment webhooks
 │   ├── core/
 │   │   ├── __init__.py
 │   │   ├── drain_filter.py      # Drain3 log clustering engine
+│   │   ├── pipeline.py          # logs → clusters → LLM → post-mortem
+│   │   ├── post_mortem.py       # Jinja2 Markdown report generator
 │   │   ├── anomaly_detector.py  # Statistical Z-score / IQR calculation
 │   │   └── correlator.py        # Correlation across logs, metrics & git diffs
 │   ├── llm/
@@ -184,6 +187,7 @@ opsmind/
 └── tests/
     ├── test_health.py
     ├── test_drain.py
+    ├── test_pipeline.py
     ├── test_correlator.py
     └── test_llm_schemas.py
 ```
@@ -209,7 +213,7 @@ See [PLAN.md](PLAN.md) for the full phase-by-phase build plan.
 | Phase | Focus | Deliverable |
 | --- | --- | --- |
 | 0 | Repository bootstrap | ✅ Runnable FastAPI skeleton with `/healthz`, settings, Docker |
-| 1 | Core engine & log intelligence | `POST /api/v1/analyze/logs` returning structured RCA + post-mortem |
+| 1 | Core engine & log intelligence | ✅ `POST /api/v1/analyze/logs` returning structured RCA + post-mortem |
 | 2 | Interactive ChatOps & CLI | Slack incident cards + `opsmind triage --last 15m` |
 | 3 | GitOps & metric correlation | "CPU spiked 3 min after commit `a1b2c3d` by Dev X" |
 | 4 | Incident memory (RAG) & safe remediation | Similar-incident retrieval + 1-click validated rollback |

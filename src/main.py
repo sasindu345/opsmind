@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from config.settings import get_settings
+from src.api.routes_logs import router as logs_router
 
 settings = get_settings()
 
@@ -46,6 +47,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+app.include_router(logs_router)
 
 
 @app.get("/healthz", tags=["system"])

@@ -31,19 +31,21 @@ Each phase ends in a demoable deliverable; nothing later depends on a phase that
 
 *Goal: FastAPI backbone, log parser, and LLM root-cause generator.*
 
-* [ ] **1.1** Pydantic request models for log ingestion (`LogBatch`: service, environment, timestamp, `list[str]` lines).
-* [ ] **1.2** `src/core/drain_filter.py` — Drain3 `TemplateMiner` with `FilePersistence`, configured by `config/drain3.ini`.
+* [x] **1.1** Pydantic request models for log ingestion (`LogBatch`: service, environment, timestamp, `list[str]` lines).
+* [x] **1.2** `src/core/drain_filter.py` — Drain3 `TemplateMiner` with `FilePersistence`, configured by `config/drain3.ini`.
       Returns clusters: `template`, `count`, `sample_lines`, `extracted_params`.
-* [ ] **1.3** `src/llm/client.py` — LiteLLM wrapper routing to `gemini/gemini-2.0-flash` or `ollama/llama3:8b`,
+* [x] **1.3** `src/llm/client.py` — LiteLLM wrapper routing to `gemini/gemini-2.0-flash` or `ollama/llama3:8b`,
       with retry/backoff and a hard timeout. Free-tier rate limiting (15 RPM token bucket).
-* [ ] **1.4** `src/llm/schemas.py` — `Severity` (enum), `SuggestedFix`, `RootCauseAnalysis`
+* [x] **1.4** `src/llm/schemas.py` — `Severity` (enum), `SuggestedFix`, `RootCauseAnalysis`
       (summary, probable_cause, confidence 0–1, affected_services, evidence, fixes, severity).
       Enforce structured JSON output; validate and retry once on parse failure.
-* [ ] **1.5** `src/llm/prompts.py` — system + user templates that take clustered templates, not raw logs.
-* [ ] **1.6** `templates/post_mortem.md.jinja2` + generator writing `reports/incident-YYYY-MM-DD-<slug>.md`.
-* [ ] **1.7** `src/api/routes_logs.py` — `POST /api/v1/analyze/logs` wiring: parse → cluster → LLM → report.
-* [ ] **1.8** Tests: `tests/test_drain.py` (clustering collapses N similar lines to 1 template),
+* [x] **1.5** `src/llm/prompts.py` — system + user templates that take clustered templates, not raw logs.
+* [x] **1.6** `templates/post_mortem.md.jinja2` + generator writing `reports/incident-YYYY-MM-DD-<slug>.md`.
+* [x] **1.7** `src/api/routes_logs.py` — `POST /api/v1/analyze/logs` wiring: parse → cluster → LLM → report.
+* [x] **1.8** Tests: `tests/test_drain.py` (clustering collapses N similar lines to 1 template),
       `tests/test_llm_schemas.py` (schema validation, bad-JSON retry path with a mocked client).
+
+**Status:** ✅ Complete — 20 tests passing, `ruff check .` clean. Gemini is the active provider; `LLM_PROVIDER=ollama` switches to self-hosted inference with no code change.
 
 **Deliverable 1:** `POST /api/v1/analyze/logs` accepts raw logs, clusters them, invokes the LLM,
 and returns a structured JSON root-cause report plus the path to a generated Markdown post-mortem.

@@ -1,0 +1,78 @@
+# {{ analysis.severity.emoji }} Incident: {{ analysis.title }}
+
+| Field | Value |
+| --- | --- |
+| Incident ID | `{{ result.incident_id }}` |
+| Service | `{{ result.service }}` |
+| Environment | `{{ result.environment }}` |
+| Severity | **{{ analysis.severity.value | upper }}** |
+| Detected at | {{ result.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }} |
+| Confidence | {{ '%.0f' | format(analysis.confidence * 100) }}% |
+| Analysed by | `{{ result.model or 'heuristic fallback' }}` |
+
+{% if result.degraded %}
+> ⚠️ **Degraded analysis** — the LLM was unavailable and this report was generated heuristically.
+{% endif %}
+
+## Summary
+
+{{ analysis.summary }}
+
+## Probable Root Cause
+
+{{ analysis.probable_cause }}
+
+{% if analysis.affected_services %}
+**Affected services:** {% for s in analysis.affected_services %}`{{ s }}`{{ ", " if not loop.last }}{% endfor %}
+{% endif %}
+
+## Evidence
+
+{% for item in analysis.evidence %}
+- {{ item }}
+{% else %}
+- _No evidence recorded._
+{% endfor %}
+
+## Log Pattern Analysis
+
+{{ result.lines_ingested }} log lines collapsed into {{ result.clusters | length }} patterns
+({{ '%.1f' | format(result.token_reduction * 100) }}% reduction before LLM analysis).
+
+| Occurrences | Level | Template |
+| ---: | --- | --- |
+{% for c in result.clusters -%}
+| {{ c.occurrences }} | {{ c.level }} | `{{ c.template | replace('|', '\\|') }}` |
+{% endfor %}
+
+## Suggested Remediation
+
+{% for fix in analysis.suggested_fixes %}
+### {{ loop.index }}. {{ fix.title }} — risk: {{ fix.risk.value }}
+
+{{ fix.description }}
+{% if fix.command %}
+```bash
+{{ fix.command }}
+```
+{% endif %}
+{% else %}
+_No remediation suggested._
+{% endfor %}
+
+## Timeline
+
+| Time | Event |
+| --- | --- |
+| {{ result.created_at.strftime('%H:%M:%S') }} | Logs ingested and clustered |
+| {{ result.created_at.strftime('%H:%M:%S') }} | Root cause analysis produced |
+
+## Follow-up Actions
+
+- [ ] Confirm the probable cause against dashboards
+- [ ] Apply or reject the suggested remediation
+- [ ] Add an alert or test covering this failure mode
+
+---
+
+*Blameless post-mortem generated automatically by [OpsMind](https://github.com/your-org/opsmind).*
