@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    container_name: opsmind-api
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./reports:/app/reports
+      - opsmind-data:/app/data
+    restart: unless-stopped
+
+  # Optional: 100% local inference. Start with `docker compose --profile local up`.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: opsmind-ollama
+    profiles: ["local"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  opsmind-data:
+  ollama-models:

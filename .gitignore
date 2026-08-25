@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Environment & secrets
+.env
+
+# Data
+*.db
+*.sqlite3
+drain3_state.bin
+
+# Generated reports (keep the directory)
+reports/*.md
+!reports/.gitkeep
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

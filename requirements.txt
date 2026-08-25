@@ -1,0 +1,29 @@
+# --- Web / API ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+httpx==0.28.1
+
+# --- Log intelligence ---
+drain3==0.9.11
+
+# --- LLM ---
+litellm==1.57.0
+jinja2==3.1.5
+
+# --- Metrics / correlation ---
+numpy==2.2.1
+
+# --- ChatOps & CLI ---
+slack-bolt==1.22.0
+typer==0.15.1
+rich==13.9.4
+
+# --- Incident memory (Phase 4) ---
+sqlite-vec==0.1.6
+sentence-transformers==3.3.1
+
+# --- Dev ---
+pytest==8.3.4
+ruff==0.8.6
