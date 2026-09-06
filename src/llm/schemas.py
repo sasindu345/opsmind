@@ -31,8 +31,17 @@ class Severity(str, Enum):
         }[self]
 
 
+class IncidentStatus(str, Enum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    INVESTIGATING = "investigating"
+    REMEDIATING = "remediating"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+
 class SuggestedFix(BaseModel):
-    title: str = Field(description="Short imperative action, e.g. 'Raise memory limit'.")
+    title: str = Field(description="Short imperative action, e.g. 'Rollback deployment'.")
     description: str = Field(description="What to do and why it addresses the cause.")
     command: str | None = Field(
         default=None,
@@ -40,6 +49,10 @@ class SuggestedFix(BaseModel):
     )
     risk: Severity = Field(
         default=Severity.MEDIUM, description="Blast radius of applying this fix."
+    )
+    runbook_id: str | None = Field(
+        default=None,
+        description="Predefined safe runbook identifier, e.g. 'rollback-deployment'.",
     )
 
 
@@ -53,7 +66,8 @@ class RootCauseAnalysis(BaseModel):
     severity: Severity = Severity.MEDIUM
     affected_services: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(
-        default_factory=list, description="Log templates or metrics supporting the conclusion."
+        default_factory=list,
+        description="Log templates, metrics or git facts supporting the conclusion.",
     )
     suggested_fixes: list[SuggestedFix] = Field(default_factory=list)
 
@@ -67,15 +81,29 @@ class LogClusterView(BaseModel):
     sample: str
 
 
+class TimelineItemView(BaseModel):
+    """Timeline event in API response."""
+
+    timestamp: datetime
+    source: str
+    event_type: str
+    description: str
+
+
 class AnalysisResult(BaseModel):
     """Full response of the analysis pipeline."""
 
     incident_id: str
     service: str
     environment: str
+    status: IncidentStatus = IncidentStatus.OPEN
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    resolved_at: datetime | None = None
     analysis: RootCauseAnalysis
     clusters: list[LogClusterView] = Field(default_factory=list)
+    observed_evidence: list[str] = Field(default_factory=list)
+    inferred_correlation: str | None = None
+    timeline: list[TimelineItemView] = Field(default_factory=list)
     lines_ingested: int = 0
     token_reduction: float = Field(
         default=0.0, description="Fraction of log lines removed by clustering (0.0–1.0)."
@@ -85,3 +113,4 @@ class AnalysisResult(BaseModel):
         default=False, description="True when the LLM failed and a heuristic report was used."
     )
     report_path: str | None = None
+    artifact_uri: str | None = None

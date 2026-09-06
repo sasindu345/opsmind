@@ -22,13 +22,17 @@
 
 {{ analysis.probable_cause }}
 
+{% if result.inferred_correlation %}
+> **Inferred Correlation:** {{ result.inferred_correlation }}
+{% endif %}
+
 {% if analysis.affected_services %}
 **Affected services:** {% for s in analysis.affected_services %}`{{ s }}`{{ ", " if not loop.last }}{% endfor %}
 {% endif %}
 
-## Evidence
+## Observed Evidence
 
-{% for item in analysis.evidence %}
+{% for item in (result.observed_evidence if result.observed_evidence else analysis.evidence) %}
 - {{ item }}
 {% else %}
 - _No evidence recorded._
@@ -62,10 +66,16 @@ _No remediation suggested._
 
 ## Timeline
 
-| Time | Event |
-| --- | --- |
-| {{ result.created_at.strftime('%H:%M:%S') }} | Logs ingested and clustered |
-| {{ result.created_at.strftime('%H:%M:%S') }} | Root cause analysis produced |
+| Time (UTC) | Source | Event |
+| --- | --- | --- |
+{% if result.timeline %}
+{% for t in result.timeline %}
+| {{ t.timestamp.strftime('%H:%M:%S') }} | `{{ t.source }}` | {{ t.description }} |
+{% endfor %}
+{% else %}
+| {{ result.created_at.strftime('%H:%M:%S') }} | `log` | Logs ingested and clustered |
+| {{ result.created_at.strftime('%H:%M:%S') }} | `llm` | Root cause analysis produced |
+{% endif %}
 
 ## Follow-up Actions
 
