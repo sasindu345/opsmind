@@ -132,25 +132,26 @@ Telemetry / Webhooks → EventBridge → SQS → Incident Worker → (Drain3 + A
 
 ---
 
-## Phase 6 — Incident Memory (RAG) & AI Safety Remediation Runbooks
+## Phase 6 — Incident Memory (RAG) & AI Safety Remediation Runbooks ✅
 
 *Goal: historical incident retrieval and guarded, human-in-the-loop runbook execution.*
 
-* [ ] **6.1** `src/memory/embedder.py` — Embeddings generation (`all-MiniLM-L6-v2`) with lazy loading and fallback.
-* [ ] **6.2** `src/memory/vector_store.py` — Vector memory indexing resolved post-mortems and retrieving similar historical incidents into LLM prompts.
-* [ ] **6.3** `src/executor/runbooks.py` — Predefined runbook catalog (`rollback-deployment`, `restart-service`, `scale-workload`, `clear-cache`, `cordon-node`).
-* [ ] **6.4** `src/executor/runner.py` — Safe execution engine:
+* [x] **6.1** `src/memory/embedder.py` — Embeddings generation (`all-MiniLM-L6-v2` / deterministic hashing) with lazy loading and fallback.
+* [x] **6.2** `src/memory/vector_store.py` — Vector memory indexing resolved post-mortems and retrieving similar historical incidents into LLM prompts.
+* [x] **6.3** `src/executor/runbooks.py` — Predefined runbook catalog (`rollback-deployment`, `restart-service`, `scale-workload`, `clear-cache`, `cordon-node`).
+* [x] **6.4** `src/executor/runner.py` — Safe execution engine:
       - Command allowlist only (`shell=False` argv lists)
       - Strict regex argument validation (service names, namespaces, replica counts)
       - Mandatory dry-run preview (command preview, blast radius, risk rating)
       - Human approval workflow (`DRY_RUN` → `APPROVE` / `CANCEL`)
       - Immutable audit log (`who`, `what`, `when`, `why`, `target`, `result`)
-* [ ] **6.5** API endpoints:
+* [x] **6.5** API endpoints:
       - `POST /api/v1/incidents/{id}/remediation/dry-run`
       - `POST /api/v1/incidents/{id}/remediation/approve`
-* [ ] **6.6** Tests: `tests/test_executor_security.py` (rejection of non-whitelisted commands, argument tampering, shell injections, dry-run safety) and `tests/test_memory.py`.
+      - `GET /api/v1/incidents/{id}/similar`
+* [x] **6.6** Tests: `tests/test_executor_security.py` (rejection of non-whitelisted commands, argument tampering, shell injections, dry-run safety) and `tests/test_memory.py`.
 
-**Deliverable 6:** Historical incident RAG and strictly guarded, safe remediation execution.
+**Status:** ✅ Complete — 57 tests passing, `ruff check .` clean. Incident memory RAG search and guarded safe remediation runbook execution.
 
 ---
 
