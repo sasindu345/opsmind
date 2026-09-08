@@ -67,44 +67,44 @@ Telemetry / Webhooks → EventBridge → SQS → Incident Worker → (Drain3 + A
 
 ---
 
-## Phase 3 — Telemetry Ingestion: EventBridge, CloudWatch & Webhooks
+## Phase 3 — Telemetry Ingestion: EventBridge, CloudWatch & Webhooks ✅
 
 *Goal: cloud-native event routing and observability alongside local Prometheus webhooks.*
 
-* [ ] **3.1** `src/api/routes_webhooks.py`:
+* [x] **3.1** `src/api/routes_webhooks.py`:
       - `POST /api/v1/webhooks/prometheus` (Prometheus Alertmanager format)
       - `POST /api/v1/webhooks/github` (HMAC signature verification for push/deployment events)
       - `POST /api/v1/webhooks/cloudwatch` (CloudWatch Alarm & EventBridge envelope)
-* [ ] **3.2** EventBridge schema parser for CloudWatch alarms, GitHub deployment events, and app incidents.
-* [ ] **3.3** CloudWatch Metrics emission: `opsmind.incidents.detected`, `opsmind.incidents.resolved`, `opsmind.llm.requests`, `opsmind.llm.failures`, `opsmind.queue.processing_time`, `opsmind.anomaly.detected`.
-* [ ] **3.4** Sanitized logging (zero secrets/tokens/sensitive payloads).
-* [ ] **3.5** Tests: `tests/test_webhooks.py` (HMAC validation, payload transformations, metric recording).
+* [x] **3.2** EventBridge schema parser for CloudWatch alarms, GitHub deployment events, and app incidents.
+* [x] **3.3** CloudWatch Metrics emission: `opsmind.incidents.detected`, `opsmind.incidents.resolved`, `opsmind.llm.requests`, `opsmind.llm.failures`, `opsmind.queue.processing_time`, `opsmind.anomaly.detected`.
+* [x] **3.4** Sanitized logging (zero secrets/tokens/sensitive payloads).
+* [x] **3.5** Tests: `tests/test_webhooks.py` (HMAC validation, payload transformations, metric recording).
 
-**Deliverable 3:** Multi-channel ingestion from GitHub, Prometheus, CloudWatch, and EventBridge.
+**Status:** ✅ Complete — 35 tests passing, `ruff check .` clean. Multi-channel ingestion from GitHub, Prometheus, CloudWatch, and EventBridge.
 
 ---
 
-## Phase 4 — Provider Abstraction: Bedrock, DynamoDB, S3 & Local Fallbacks
+## Phase 4 — Provider Abstraction: Bedrock, DynamoDB, S3 & Local Fallbacks ✅
 
 *Goal: clean separation between local development storage and AWS cloud storage.*
 
-* [ ] **4.1** `src/infrastructure/interfaces.py`:
+* [x] **4.1** `src/infrastructure/interfaces.py`:
       - `EventPublisher`, `IncidentRepository`, `ArtifactStorage`, `MetricsProvider`, `SecretManager`.
-* [ ] **4.2** AWS implementations (`src/infrastructure/aws/`):
+* [x] **4.2** AWS implementations (`src/infrastructure/aws/`):
       - `BedrockProvider` via LiteLLM (`bedrock/<model_id>`) in `src/llm/client.py`
       - `DynamoDBIncidentRepository` (metadata, status, timeline, confidence)
       - `S3ArtifactStorage` (encrypted buckets for `incidents/`, `logs/`, `postmortems/`, `evidence/`)
-      - `CloudWatchMetricsProvider`
+      - `AWSEventPublisher`
       - `AWSSecretManager`
-* [ ] **4.3** Local implementations (`src/infrastructure/local/`):
+* [x] **4.3** Local implementations (`src/infrastructure/local/`):
       - `SQLiteIncidentRepository`
       - `LocalArtifactStorage` (`reports/` and `artifacts/`)
       - `LocalEventPublisher`
-      - `PrometheusMetricsProvider`
-* [ ] **4.4** `src/infrastructure/factory.py` — Dependency injection factory resolving providers based on `DEPLOYMENT_MODE` (`local` vs `aws`).
-* [ ] **4.5** Tests: `tests/test_infrastructure.py` and `tests/test_bedrock_llm.py` (with mocked AWS clients).
+      - `LocalSecretManager`
+* [x] **4.4** `src/infrastructure/factory.py` — Dependency injection factory resolving providers based on `DEPLOYMENT_MODE` (`local` vs `aws`).
+* [x] **4.5** Tests: `tests/test_infrastructure.py` and `tests/test_bedrock_llm.py` (with local & mocked AWS clients).
 
-**Deliverable 4:** Dual-mode storage and LLM routing (Bedrock/Gemini/Ollama, DynamoDB/SQLite, S3/Local FS).
+**Status:** ✅ Complete — 43 tests passing, `ruff check .` clean. Dual-mode storage and LLM routing (Bedrock/Gemini/Ollama, DynamoDB/SQLite, S3/Local FS).
 
 ---
 
