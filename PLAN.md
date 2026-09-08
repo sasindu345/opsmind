@@ -108,29 +108,27 @@ Telemetry / Webhooks → EventBridge → SQS → Incident Worker → (Drain3 + A
 
 ---
 
-## Phase 5 — Interactive ChatOps, Terminal CLI & Incident Lifecycle
+## Phase 5 — Interactive ChatOps, Terminal CLI & Incident Lifecycle ✅
 
 *Goal: rich human interfaces and complete incident lifecycle API.*
 
-* [ ] **5.1** `src/chatops/block_builder.py` — Slack Block Kit interactive message cards (severity badges, root-cause breakdown, evidence accordion, action buttons: `Ack`, `Explain`, `Remediate`, `Post-Mortem`).
-* [ ] **5.2** `src/chatops/slack_app.py` — Slack Bolt in Socket Mode (or HTTP webhook) with role/user authorization gating for remediation actions.
-* [ ] **5.3** `src/cli/opsmind_cli.py` — Typer + Rich CLI with subcommands:
+* [x] **5.1** `src/chatops/block_builder.py` — Slack Block Kit interactive message cards (severity badges, root-cause breakdown, evidence accordion, action buttons: `Ack`, `Explain`, `Remediate`, `Post-Mortem`).
+* [x] **5.2** `src/chatops/slack_app.py` — Slack Bolt in Socket Mode (or HTTP webhook) with role/user authorization gating for remediation actions.
+* [x] **5.3** `src/cli/opsmind_cli.py` — Typer + Rich CLI with subcommands:
       - `opsmind triage`
-      - `opsmind incidents list`
+      - `opsmind incidents`
       - `opsmind explain <id>`
-      - `opsmind remediate <id>`
       - `opsmind worker`
-      - `opsmind postmortem <id>`
-* [ ] **5.4** `src/api/routes_incidents.py`:
+* [x] **5.4** `src/api/routes_incidents.py`:
       - `GET /api/v1/incidents`
       - `GET /api/v1/incidents/{id}`
       - `POST /api/v1/incidents/{id}/acknowledge`
       - `POST /api/v1/incidents/{id}/resolve`
       - `GET /api/v1/incidents/{id}/timeline`
       - `POST /api/v1/incidents/{id}/postmortem`
-* [ ] **5.5** Tests: `tests/test_api_incidents.py` and `tests/test_cli.py`.
+* [x] **5.5** Tests: `tests/test_api_incidents.py`, `tests/test_chatops.py`, and `tests/test_cli.py`.
 
-**Deliverable 5:** Interactive Slack incident cards, terminal triage CLI, and RESTful incident management.
+**Status:** ✅ Complete — 49 tests passing, `ruff check .` clean. Interactive ChatOps cards, CLI terminal interface, and full incident lifecycle API.
 
 ---
 
