@@ -36,7 +36,7 @@ def test_iqr_detects_spike_and_drop():
         MetricPoint(timestamp=base_time + timedelta(minutes=4), value=50.0),
         MetricPoint(timestamp=base_time + timedelta(minutes=5), value=53.0),
         MetricPoint(timestamp=base_time + timedelta(minutes=6), value=120.0),  # Spike
-        MetricPoint(timestamp=base_time + timedelta(minutes=7), value=2.0),    # Drop
+        MetricPoint(timestamp=base_time + timedelta(minutes=7), value=2.0),  # Drop
     ]
 
     anomalies = detector.detect_iqr("http_latency", points)

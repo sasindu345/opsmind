@@ -18,9 +18,7 @@ logger = logging.getLogger("opsmind.infrastructure.sqlite")
 class SQLiteIncidentRepository:
     """Stores incident metadata and timeline in a local SQLite database."""
 
-    def __init__(
-        self, db_path: str | Path | None = None, settings: Settings | None = None
-    ) -> None:
+    def __init__(self, db_path: str | Path | None = None, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         if db_path is None:
             raw_url = self.settings.database_url
@@ -133,9 +131,7 @@ class SQLiteIncidentRepository:
 
     async def update_status(self, incident_id: str, new_status: IncidentStatus) -> bool:
         resolved_at = (
-            datetime.now(UTC).isoformat()
-            if new_status == IncidentStatus.RESOLVED
-            else None
+            datetime.now(UTC).isoformat() if new_status == IncidentStatus.RESOLVED else None
         )
         sql = (
             "UPDATE incidents SET status = ?, "
@@ -151,9 +147,7 @@ class SQLiteIncidentRepository:
 
     def _row_to_record(self, row: sqlite3.Row) -> IncidentRecord:
         created_at = datetime.fromisoformat(row["created_at"])
-        resolved_at = (
-            datetime.fromisoformat(row["resolved_at"]) if row["resolved_at"] else None
-        )
+        resolved_at = datetime.fromisoformat(row["resolved_at"]) if row["resolved_at"] else None
         evidence = json.loads(row["evidence_json"]) if row["evidence_json"] else []
         timeline = json.loads(row["timeline_json"]) if row["timeline_json"] else []
 

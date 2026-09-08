@@ -57,11 +57,14 @@ class SlackChatOps:
                 await say(f"⚠️ Incident `{inc_id}` not found.")
                 return
 
-            timeline_str = "\n".join(
-                f"• *{t.get('source', 'log')}* [{t.get('timestamp', '')[:19]}]: "
-                f"{t.get('description', '')}"
-                for t in inc.timeline_json[:5]
-            ) or "_No timeline entries._"
+            timeline_str = (
+                "\n".join(
+                    f"• *{t.get('source', 'log')}* [{t.get('timestamp', '')[:19]}]: "
+                    f"{t.get('description', '')}"
+                    for t in inc.timeline_json[:5]
+                )
+                or "_No timeline entries._"
+            )
 
             await say(
                 f"📋 *Incident Explanation (`{inc_id[:8]}`)*:\n"

@@ -162,7 +162,9 @@ async def test_dynamodb_repository_with_mock(monkeypatch, sample_analysis_result
 async def test_s3_artifact_storage_with_mock(monkeypatch):
     storage = S3ArtifactStorage(bucket_name="mock-bucket", region="us-east-1")
     mock_s3 = MagicMock()
-    mock_s3.generate_presigned_url.return_value = "https://mock-bucket.s3.amazonaws.com/test.md?sig=123"
+    mock_s3.generate_presigned_url.return_value = (
+        "https://mock-bucket.s3.amazonaws.com/test.md?sig=123"
+    )
     monkeypatch.setattr(storage, "_get_client", lambda: mock_s3)
 
     uri = await storage.store_artifact("test.md", "# Test Content")

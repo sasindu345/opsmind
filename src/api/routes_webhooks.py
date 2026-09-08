@@ -62,15 +62,11 @@ async def prometheus_alertmanager_webhook(
     labels = top_alert.get("labels", {})
     annotations = top_alert.get("annotations", {})
 
-    service = (
-        labels.get("service") or labels.get("app") or labels.get("job") or "unknown-service"
-    )
+    service = labels.get("service") or labels.get("app") or labels.get("job") or "unknown-service"
     environment = labels.get("environment") or labels.get("env") or settings.app_env
     alert_name = labels.get("alertname", "PrometheusAlert")
     summary = (
-        annotations.get("summary")
-        or annotations.get("description")
-        or f"Alert {alert_name} fired"
+        annotations.get("summary") or annotations.get("description") or f"Alert {alert_name} fired"
     )
 
     simulated_logs = [
@@ -250,9 +246,8 @@ async def cloudwatch_alarm_webhook(
         or detail.get("Trigger", {}).get("MetricName")
         or body.get("Trigger", {}).get("MetricName", "MetricBreach")
     )
-    namespace = (
-        detail.get("Namespace")
-        or detail.get("Trigger", {}).get("Namespace", "AWS/Application")
+    namespace = detail.get("Namespace") or detail.get("Trigger", {}).get(
+        "Namespace", "AWS/Application"
     )
 
     # Extract service from alarm dimensions or name

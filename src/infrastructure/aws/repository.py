@@ -101,9 +101,7 @@ class DynamoDBIncidentRepository:
     async def update_status(self, incident_id: str, new_status: IncidentStatus) -> bool:
         table = self._get_table()
         resolved_at = (
-            datetime.now(UTC).isoformat()
-            if new_status == IncidentStatus.RESOLVED
-            else None
+            datetime.now(UTC).isoformat() if new_status == IncidentStatus.RESOLVED else None
         )
 
         update_expr = "SET #s = :status"
@@ -136,9 +134,7 @@ class DynamoDBIncidentRepository:
                 pass
 
         resolved_at = (
-            datetime.fromisoformat(item["resolved_at"])
-            if item.get("resolved_at")
-            else None
+            datetime.fromisoformat(item["resolved_at"]) if item.get("resolved_at") else None
         )
 
         return IncidentRecord(

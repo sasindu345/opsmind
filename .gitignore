@@ -10,10 +10,12 @@ venv/
 # Environment & secrets
 .env
 
-# Data
+# Data & storage
 *.db
 *.sqlite3
 drain3_state.bin
+data/
+artifacts/
 
 # Generated reports (keep the directory)
 reports/*.md

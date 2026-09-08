@@ -84,3 +84,56 @@ def test_get_nonexistent_incident_returns_404(monkeypatch):
     with TestClient(app) as client:
         resp = client.get("/api/v1/incidents/nonexistent-id")
     assert resp.status_code == 404
+
+
+def test_remediation_lifecycle_api(monkeypatch):
+    mock_repo = MagicMock()
+    sample_rec = IncidentRecord(
+        incident_id="test-remed-1",
+        service="checkout",
+        environment="production",
+        severity="high",
+        status="open",
+        created_at=datetime.now(UTC),
+        title="OOMKilled pod",
+        probable_cause="Memory limit exceeded",
+        confidence=0.9,
+    )
+    mock_repo.get_incident = AsyncMock(return_value=sample_rec)
+    monkeypatch.setattr(
+        "src.api.routes_incidents.get_incident_repository",
+        lambda settings=None: mock_repo,
+    )
+
+    with TestClient(app) as client:
+        # 1. Dry run
+        dry_run_payload = {
+            "runbook_id": "restart-service",
+            "parameters": {"namespace": "default"},
+        }
+        resp = client.post(
+            "/api/v1/incidents/test-remed-1/remediation/dry-run", json=dry_run_payload
+        )
+        assert resp.status_code == 200
+        plan = resp.json()
+        assert "plan_id" in plan
+        assert "kubectl rollout restart deployment/checkout -n default" in plan["command_preview"]
+
+        # 2. Approve execution
+        approve_payload = {
+            "plan_id": plan["plan_id"],
+            "approved_by": "lead-sre@company.com",
+            "reason": "Service degraded",
+        }
+        resp = client.post(
+            "/api/v1/incidents/test-remed-1/remediation/approve", json=approve_payload
+        )
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["status"] == "success"
+        assert result["approved_by"] == "lead-sre@company.com"
+
+        # 3. Similar incidents
+        resp = client.get("/api/v1/incidents/test-remed-1/similar")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)

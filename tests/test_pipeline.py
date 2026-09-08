@@ -62,9 +62,7 @@ def test_endpoint_degrades_gracefully_when_llm_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(get_settings(), "reports_dir", tmp_path)
 
     with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/analyze/logs", json={"service": "checkout", "logs": LOGS}
-        )
+        response = client.post("/api/v1/analyze/logs", json={"service": "checkout", "logs": LOGS})
 
     assert response.status_code == 200
     body = response.json()
