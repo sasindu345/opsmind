@@ -1,4 +1,4 @@
-"""Request models for the ingestion API."""
+"""Request and response models for the ingestion API."""
 
 from __future__ import annotations
 
@@ -28,3 +28,14 @@ class LogBatch(BaseModel):
         if not cleaned:
             raise ValueError("logs contained no non-empty lines")
         return cleaned
+
+
+class QueuedIncidentResponse(BaseModel):
+    """Fast-acknowledgment response for asynchronous queue ingestion."""
+
+    status: str = "queued"
+    message_id: str
+    correlation_id: str
+    service: str
+    environment: str
+    queued_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

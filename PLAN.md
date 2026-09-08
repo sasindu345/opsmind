@@ -51,19 +51,19 @@ Telemetry / Webhooks → EventBridge → SQS → Incident Worker → (Drain3 + A
 
 ---
 
-## Phase 2 — Asynchronous SQS & Worker Pipeline
+## Phase 2 — Asynchronous SQS & Worker Pipeline ✅
 
 *Goal: asynchronous incident processing with durability, retries, and dead-letter queues.*
 
-* [ ] **2.1** `src/core/worker.py` — Asynchronous incident worker supporting SQS and Local In-Memory Queue.
-* [ ] **2.2** Visibility timeout management and exponential backoff retry handling.
-* [ ] **2.3** Dead-Letter Queue (DLQ) support for poison-pill isolation.
-* [ ] **2.4** Idempotency checks via message deduplication IDs and incident fingerprint hashing.
-* [ ] **2.5** Fast webhook acknowledgment (<50ms) returning HTTP 202 Accepted.
-* [ ] **2.6** Structured JSON logging with correlation/request IDs throughout worker processing.
-* [ ] **2.7** Tests: `tests/test_worker_queue.py` (message lifecycle, retries, DLQ dispatch, idempotency).
+* [x] **2.1** `src/core/worker.py` — Asynchronous incident worker supporting SQS and Local In-Memory Queue.
+* [x] **2.2** Visibility timeout management and exponential backoff retry handling.
+* [x] **2.3** Dead-Letter Queue (DLQ) support for poison-pill isolation.
+* [x] **2.4** Idempotency checks via message deduplication IDs and incident fingerprint hashing.
+* [x] **2.5** Fast webhook acknowledgment (<50ms) returning HTTP 202 Accepted via `POST /api/v1/analyze/logs/async`.
+* [x] **2.6** Structured JSON logging with correlation/request IDs throughout worker processing.
+* [x] **2.7** Tests: `tests/test_worker_queue.py` (message lifecycle, retries, DLQ dispatch, idempotency).
 
-**Deliverable 2:** High-throughput async worker decoupling ingestion from heavy LLM/clustering analysis.
+**Status:** ✅ Complete — 30 tests passing, `ruff check .` clean. High-throughput async worker decoupling ingestion from heavy LLM/clustering analysis.
 
 ---
 
