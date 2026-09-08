@@ -1,16 +1,59 @@
 services:
+  # OpsMind REST API & Webhook Ingestion Engine
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: opsmind-api
-    env_file: .env
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     volumes:
       - ./reports:/app/reports
       - opsmind-data:/app/data
+      - opsmind-artifacts:/app/artifacts
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Asynchronous Background Incident Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: opsmind-worker
+    command: ["python", "-m", "src.cli.opsmind_cli", "worker", "--interval", "0.5"]
+    env_file:
+      - .env
+    volumes:
+      - ./reports:/app/reports
+      - opsmind-data:/app/data
+      - opsmind-artifacts:/app/artifacts
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
-  # Optional: 100% local inference. Start with `docker compose --profile local up`.
+  # Optional: Local Prometheus Telemetry (docker compose --profile telemetry up)
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: opsmind-prometheus
+    profiles: ["telemetry"]
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  # Optional: 100% Local Ollama LLM Inference (docker compose --profile local up)
   ollama:
     image: ollama/ollama:latest
     container_name: opsmind-ollama
@@ -23,4 +66,6 @@ services:
 
 volumes:
   opsmind-data:
+  opsmind-artifacts:
+  prometheus-data:
   ollama-models:
