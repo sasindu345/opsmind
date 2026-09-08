@@ -182,15 +182,23 @@ body {
 }
 
 .sidebar-nav {
-  width: 230px;
-  min-width: 230px;
+  width: 240px;
+  min-width: 240px;
   flex-shrink: 0;
   border-right: 1px solid var(--border-color);
-  background: rgba(11, 15, 25, 0.6);
-  padding: 24px 14px;
+  background: rgba(11, 15, 25, 0.75);
+  padding: 20px 14px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 16px;
+}
+
+.sidebar-top-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
 }
 
 .nav-section-title {
@@ -198,7 +206,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text-dim);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   padding-left: 8px;
 }
 
@@ -206,6 +214,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  width: 100%;
 }
 
 .nav-tab {
@@ -245,6 +254,12 @@ body {
   color: var(--accent-amber);
   padding: 1px 7px;
   border-radius: 10px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  width: 100%;
+  padding-top: 16px;
 }
 
 .sidebar-help-card {
