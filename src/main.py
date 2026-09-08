@@ -9,13 +9,16 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from config.settings import get_settings
+from config.settings import PROJECT_ROOT, get_settings
 from src.api.routes_incidents import router as incidents_router
 from src.api.routes_logs import router as logs_router
 from src.api.routes_webhooks import router as webhooks_router
 
 settings = get_settings()
+STATIC_DIR = PROJECT_ROOT / "static"
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -27,6 +30,7 @@ logger = logging.getLogger("opsmind")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(
         "starting %s (env=%s, provider=%s, model=%s)",
         settings.app_name,
@@ -49,10 +53,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(logs_router)
 app.include_router(webhooks_router)
 app.include_router(incidents_router)
+
+
+@app.get("/", tags=["dashboard"])
+@app.get("/dashboard", tags=["dashboard"])
+async def serve_dashboard() -> FileResponse:
+    """Serve the interactive OpsMind Web Dashboard."""
+    index_file = STATIC_DIR / "index.html"
+    return FileResponse(index_file)
 
 
 @app.get("/healthz", tags=["system"])
