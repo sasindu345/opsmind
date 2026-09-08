@@ -6,16 +6,22 @@ import logging
 import uuid
 from typing import Any
 
-from src.core.worker import IncidentMessage, get_local_queue
-
 logger = logging.getLogger("opsmind.infrastructure.local_events")
 
 
 class LocalEventPublisher:
     """Publishes events into the local in-memory incident queue."""
 
-    def __init__(self) -> None:
-        self.queue = get_local_queue()
+    def __init__(self, queue=None) -> None:
+        self._queue = queue
+
+    @property
+    def queue(self):
+        if self._queue is None:
+            from src.core.worker import get_local_queue
+
+            self._queue = get_local_queue()
+        return self._queue
 
     async def publish_event(
         self,
@@ -23,6 +29,8 @@ class LocalEventPublisher:
         payload: dict[str, Any],
         source: str = "opsmind",
     ) -> str:
+        from src.core.worker import IncidentMessage
+
         message_id = uuid.uuid4().hex
         correlation_id = str(payload.get("correlation_id", uuid.uuid4().hex))
         service = str(payload.get("service", "default-service"))

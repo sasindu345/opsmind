@@ -36,6 +36,7 @@ async def analyze_logs(
     anomalies: list[AnomalyRecord] | None = None,
     deployments: list[DeploymentRecord] | None = None,
     rag_context: str | None = None,
+    persist_incident: bool = True,
 ) -> AnalysisResult:
     """Run one batch of logs + telemetry through the full multi-source triage pipeline."""
     settings = settings or get_settings()
@@ -134,5 +135,14 @@ async def analyze_logs(
 
     if batch.generate_report:
         result.report_path = str(write_post_mortem(result, settings))
+
+    if persist_incident:
+        try:
+            from src.infrastructure.factory import get_incident_repository
+
+            repo = get_incident_repository(settings)
+            await repo.save_incident(result)
+        except Exception as exc:
+            logger.warning("could not persist incident to repository: %s", exc)
 
     return result

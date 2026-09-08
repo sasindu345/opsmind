@@ -1,6 +1,6 @@
 """OpsMind FastAPI entry point.
 
-Mounts API feature routers for logs and telemetry webhooks.
+Mounts API feature routers for logs, webhooks, and incident management.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from config.settings import get_settings
+from src.api.routes_incidents import router as incidents_router
 from src.api.routes_logs import router as logs_router
 from src.api.routes_webhooks import router as webhooks_router
 
@@ -51,6 +52,7 @@ app = FastAPI(
 
 app.include_router(logs_router)
 app.include_router(webhooks_router)
+app.include_router(incidents_router)
 
 
 @app.get("/healthz", tags=["system"])
