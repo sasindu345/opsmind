@@ -1,7 +1,6 @@
 """OpsMind FastAPI entry point.
 
-Phase 0 exposes only health endpoints; feature routers are mounted here as each
-phase lands (see PLAN.md).
+Mounts API feature routers for logs and telemetry webhooks.
 """
 
 from __future__ import annotations
@@ -13,6 +12,7 @@ from fastapi import FastAPI
 
 from config.settings import get_settings
 from src.api.routes_logs import router as logs_router
+from src.api.routes_webhooks import router as webhooks_router
 
 settings = get_settings()
 
@@ -50,6 +50,7 @@ app = FastAPI(
 
 
 app.include_router(logs_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/healthz", tags=["system"])
