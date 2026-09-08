@@ -1,7 +1,7 @@
-"""LiteLLM client for Gemini (free tier) and Ollama (local / self-hosted).
+"""LiteLLM client for Gemini (free tier), Ollama (local), and Amazon Bedrock (AWS).
 
-Provider choice is pure configuration: ``LLM_PROVIDER=gemini`` today,
-``LLM_PROVIDER=ollama`` once inference runs on our own server. Nothing outside
+Provider choice is pure configuration: ``LLM_PROVIDER=gemini``,
+``LLM_PROVIDER=ollama``, or ``LLM_PROVIDER=bedrock``. Nothing outside
 this module knows which one is active.
 """
 
@@ -84,6 +84,8 @@ class LLMClient:
         }
         if self.settings.llm_provider is LLMProvider.GEMINI:
             kwargs["api_key"] = self.settings.gemini_api_key
+        elif self.settings.llm_provider is LLMProvider.BEDROCK:
+            kwargs["aws_region_name"] = self.settings.aws_region
         else:
             kwargs["api_base"] = self.settings.ollama_base_url
         return kwargs
@@ -133,16 +135,13 @@ class LLMClient:
             return {"ok": False, "model": self.model, "error": reason}
         try:
             await self._limiter.acquire()
+            call_kwargs = self._completion_kwargs()
+            call_kwargs.pop("response_format", None)
             await litellm.acompletion(
-                model=self.model,
                 messages=[{"role": "user", "content": "ping"}],
                 max_tokens=5,
                 timeout=15,
-                **(
-                    {"api_key": self.settings.gemini_api_key}
-                    if self.settings.llm_provider is LLMProvider.GEMINI
-                    else {"api_base": self.settings.ollama_base_url}
-                ),
+                **call_kwargs,
             )
             return {"ok": True, "model": self.model}
         except Exception as exc:  # noqa: BLE001
