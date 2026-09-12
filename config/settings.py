@@ -7,7 +7,7 @@ and is trivially overridable in tests.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
@@ -17,12 +17,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-class DeploymentMode(str, Enum):
+class DeploymentMode(StrEnum):
     LOCAL = "local"
     AWS = "aws"
 
 
-class LLMProvider(str, Enum):
+class LLMProvider(StrEnum):
     GEMINI = "gemini"
     OLLAMA = "ollama"
     BEDROCK = "bedrock"

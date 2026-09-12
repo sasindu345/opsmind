@@ -8,12 +8,12 @@ that fails validation is retried once with the validation error fed back; see
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -31,7 +31,7 @@ class Severity(str, Enum):
         }[self]
 
 
-class IncidentStatus(str, Enum):
+class IncidentStatus(StrEnum):
     OPEN = "open"
     ACKNOWLEDGED = "acknowledged"
     INVESTIGATING = "investigating"

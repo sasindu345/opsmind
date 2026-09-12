@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 try:
     import numpy as np
@@ -18,7 +18,7 @@ except ImportError:  # pragma: no cover
     np = None
 
 
-class AnomalyMethod(str, Enum):
+class AnomalyMethod(StrEnum):
     ZSCORE = "zscore"
     IQR = "iqr"
 

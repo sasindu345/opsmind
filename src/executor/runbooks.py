@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import enum
 import re
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 
-class RunbookRiskLevel(str, enum.Enum):
+class RunbookRiskLevel(StrEnum):
     """Risk tier of remediation action."""
 
     LOW = "low"
