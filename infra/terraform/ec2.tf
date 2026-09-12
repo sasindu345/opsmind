@@ -89,16 +89,24 @@ resource "aws_instance" "opsmind_host" {
 
   user_data = <<-EOF
               #!/bin/bash
-              set -e
+              set -ex
+              exec > /var/log/opsmind-startup.log 2>&1
+              export DEBIAN_FRONTEND=noninteractive
+
               apt-get update -y
-              apt-get install -y ca-certificates curl gnupg git docker.io docker-compose-v2
+              apt-get install -y ca-certificates curl git python3-pip python3-venv
 
-              systemctl enable docker
-              systemctl start docker
-              usermod -aG docker ubuntu
+              # Prepare app directory
+              rm -rf /opt/opsmind
+              git clone -b dev https://github.com/sasindu345/opsmind.git /opt/opsmind
+              cd /opt/opsmind
 
-              # Create application directory
-              mkdir -p /opt/opsmind
+              # Setup Python virtual environment & dependencies
+              python3 -m venv /opt/opsmind/.venv
+              /opt/opsmind/.venv/bin/pip install --upgrade pip
+              /opt/opsmind/.venv/bin/pip install -r /opt/opsmind/requirements.txt
+
+              # Write production environment configuration
               cat << 'ENVFILE' > /opt/opsmind/.env
               DEPLOYMENT_MODE=aws
               AWS_REGION=${var.aws_region}
@@ -109,9 +117,56 @@ resource "aws_instance" "opsmind_host" {
               EVENTBRIDGE_BUS_NAME=${aws_cloudwatch_event_bus.opsmind_bus.name}
               LLM_PROVIDER=bedrock
               BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+              APP_ENV=production
+              LOG_LEVEL=INFO
+              REPORTS_DIR=/opt/opsmind/reports
               ENVFILE
 
+              mkdir -p /opt/opsmind/reports /opt/opsmind/data /opt/opsmind/artifacts
               chown -R ubuntu:ubuntu /opt/opsmind
+
+              # 1. Create OpsMind Web API Systemd Service
+              cat << 'SERVICE' > /etc/systemd/system/opsmind.service
+              [Unit]
+              Description=OpsMind AIOps Web Platform & API
+              After=network.target
+
+              [Service]
+              Type=simple
+              User=ubuntu
+              WorkingDirectory=/opt/opsmind
+              EnvironmentFile=/opt/opsmind/.env
+              ExecStart=/opt/opsmind/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8000
+              Restart=always
+              RestartSec=3
+
+              [Install]
+              WantedBy=multi-user.target
+              SERVICE
+
+              # 2. Create OpsMind Queue Worker Systemd Service
+              cat << 'WORKER' > /etc/systemd/system/opsmind-worker.service
+              [Unit]
+              Description=OpsMind Async SQS Incident Worker
+              After=network.target
+
+              [Service]
+              Type=simple
+              User=ubuntu
+              WorkingDirectory=/opt/opsmind
+              EnvironmentFile=/opt/opsmind/.env
+              ExecStart=/opt/opsmind/.venv/bin/python -m src.cli.opsmind_cli worker --interval 0.5
+              Restart=always
+              RestartSec=3
+
+              [Install]
+              WantedBy=multi-user.target
+              WORKER
+
+              # Enable & start both services
+              systemctl daemon-reload
+              systemctl enable --now opsmind.service
+              systemctl enable --now opsmind-worker.service
               EOF
 
   tags = {

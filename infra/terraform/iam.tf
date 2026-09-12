@@ -101,6 +101,11 @@ resource "aws_iam_role_policy_attachment" "opsmind_attach" {
   policy_arn = aws_iam_policy.opsmind_least_privilege_policy.arn
 }
 
+resource "aws_iam_role_policy_attachment" "ssm_attach" {
+  role       = aws_iam_role.opsmind_node_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 resource "aws_iam_instance_profile" "opsmind_profile" {
   name = "${local.name_prefix}-instance-profile"
   role = aws_iam_role.opsmind_node_role.name
