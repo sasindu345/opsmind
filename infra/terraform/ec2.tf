@@ -87,98 +87,17 @@ resource "aws_instance" "opsmind_host" {
     delete_on_termination = true
   }
 
-  user_data = <<-EOF
-              #!/bin/bash
-              set -ex
-              exec > /var/log/opsmind-startup.log 2>&1
-              export DEBIAN_FRONTEND=noninteractive
+  user_data_replace_on_change = true
+  depends_on                  = [aws_s3_object.app_package]
 
-              # Enable 2GB swap to ensure smooth package installation on burstable instance
-              if [ ! -f /swapfile ]; then
-                fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
-                chmod 600 /swapfile
-                mkswap /swapfile
-                swapon /swapfile
-                echo '/swapfile none swap sw 0 0' >> /etc/fstab
-              fi
-
-              apt-get update -y
-              apt-get install -y ca-certificates curl git python3-pip python3-venv build-essential
-
-              # Prepare app directory
-              rm -rf /opt/opsmind
-              git clone -b dev https://github.com/sasindu345/opsmind.git /opt/opsmind
-              cd /opt/opsmind
-
-              # Setup Python virtual environment & dependencies
-              python3 -m venv /opt/opsmind/.venv
-              /opt/opsmind/.venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
-              /opt/opsmind/.venv/bin/pip install --no-cache-dir -r /opt/opsmind/requirements.txt
-
-              # Write production environment configuration
-              cat << 'ENVFILE' > /opt/opsmind/.env
-              DEPLOYMENT_MODE=aws
-              AWS_REGION=${var.aws_region}
-              SQS_QUEUE_URL=${aws_sqs_queue.incidents_queue.url}
-              SQS_DLQ_URL=${aws_sqs_queue.incidents_dlq.url}
-              DYNAMODB_TABLE_NAME=${aws_dynamodb_table.incidents.name}
-              S3_BUCKET_NAME=${aws_s3_bucket.artifacts.bucket}
-              EVENTBRIDGE_BUS_NAME=${aws_cloudwatch_event_bus.opsmind_bus.name}
-              LLM_PROVIDER=bedrock
-              BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
-              APP_ENV=production
-              LOG_LEVEL=INFO
-              REPORTS_DIR=/opt/opsmind/reports
-              ENVFILE
-
-              mkdir -p /opt/opsmind/reports /opt/opsmind/data /opt/opsmind/artifacts
-              chown -R ubuntu:ubuntu /opt/opsmind
-
-              # 1. Create OpsMind Web API Systemd Service
-              cat << 'SERVICE' > /etc/systemd/system/opsmind.service
-              [Unit]
-              Description=OpsMind AIOps Web Platform & API
-              After=network.target
-
-              [Service]
-              Type=simple
-              User=ubuntu
-              WorkingDirectory=/opt/opsmind
-              Environment=PYTHONPATH=/opt/opsmind
-              EnvironmentFile=/opt/opsmind/.env
-              ExecStart=/opt/opsmind/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8000
-              Restart=always
-              RestartSec=3
-
-              [Install]
-              WantedBy=multi-user.target
-              SERVICE
-
-              # 2. Create OpsMind Queue Worker Systemd Service
-              cat << 'WORKER' > /etc/systemd/system/opsmind-worker.service
-              [Unit]
-              Description=OpsMind Async SQS Incident Worker
-              After=network.target
-
-              [Service]
-              Type=simple
-              User=ubuntu
-              WorkingDirectory=/opt/opsmind
-              Environment=PYTHONPATH=/opt/opsmind
-              EnvironmentFile=/opt/opsmind/.env
-              ExecStart=/opt/opsmind/.venv/bin/python -m src.cli.opsmind_cli worker --interval 0.5
-              Restart=always
-              RestartSec=3
-
-              [Install]
-              WantedBy=multi-user.target
-              WORKER
-
-              # Enable & start both services
-              systemctl daemon-reload
-              systemctl enable --now opsmind.service
-              systemctl enable --now opsmind-worker.service
-              EOF
+  user_data = templatefile("${path.module}/scripts/bootstrap.sh.tftpl", {
+    aws_region           = var.aws_region
+    s3_bucket_name       = aws_s3_bucket.artifacts.bucket
+    sqs_queue_url        = aws_sqs_queue.incidents_queue.url
+    sqs_dlq_url          = aws_sqs_queue.incidents_dlq.url
+    dynamodb_table_name  = aws_dynamodb_table.incidents.name
+    eventbridge_bus_name = aws_cloudwatch_event_bus.opsmind_bus.name
+  })
 
   tags = {
     Name = "${local.name_prefix}-host"

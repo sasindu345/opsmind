@@ -35,8 +35,17 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts_lifecycle" {
     id     = "expire-old-reports-and-evidence"
     status = "Enabled"
 
+    filter {}
+
     expiration {
       days = 30 # Automatically purge old debug artifacts to eliminate storage fees
     }
   }
+}
+
+resource "aws_s3_object" "app_package" {
+  bucket = aws_s3_bucket.artifacts.id
+  key    = "deploy/opsmind-app.tar.gz"
+  source = fileexists("${path.module}/../../dist/opsmind-app.tar.gz") ? "${path.module}/../../dist/opsmind-app.tar.gz" : null
+  etag   = fileexists("${path.module}/../../dist/opsmind-app.tar.gz") ? filemd5("${path.module}/../../dist/opsmind-app.tar.gz") : null
 }

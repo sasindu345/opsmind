@@ -24,16 +24,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install ruff
 
-      - name: Run Ruff Lint
+      - name: Run Ruff Lint Check
         run: ruff check .
 
       - name: Run Ruff Format Check
         run: ruff format --check .
 
   test:
-    name: Unit & Security Tests
+    name: Unit & Integration Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
@@ -50,13 +51,41 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio anyio typer
 
       - name: Run Test Suite
         run: pytest -v
 
+  terraform-validate:
+    name: Terraform Infrastructure Validation
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Build Application Archive
+        run: |
+          chmod +x ../../scripts/package_app.sh
+          ../../scripts/package_app.sh
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
   docker-build:
-    name: Container Build Validation
+    name: Docker Container Build Check
     runs-on: ubuntu-latest
     needs: [lint, test]
     steps:

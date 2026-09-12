@@ -16,6 +16,7 @@ venv/
 drain3_state.bin
 data/
 artifacts/
+dist/
 
 # Generated reports (keep the directory)
 reports/*.md

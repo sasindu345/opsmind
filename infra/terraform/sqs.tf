@@ -5,7 +5,7 @@ resource "aws_sqs_queue" "incidents_dlq" {
 
 resource "aws_sqs_queue" "incidents_queue" {
   name                       = "${local.name_prefix}-incidents-queue"
-  visibility_timeout_seconds = 120   # 2 minutes for worker LLM processing
+  visibility_timeout_seconds = 120    # 2 minutes for worker LLM processing
   message_retention_seconds  = 345600 # 4 days
   receive_wait_time_seconds  = 20     # Long polling enabled
 
