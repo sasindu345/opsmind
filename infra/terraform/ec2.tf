@@ -93,8 +93,17 @@ resource "aws_instance" "opsmind_host" {
               exec > /var/log/opsmind-startup.log 2>&1
               export DEBIAN_FRONTEND=noninteractive
 
+              # Enable 2GB swap to ensure smooth package installation on burstable instance
+              if [ ! -f /swapfile ]; then
+                fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+                chmod 600 /swapfile
+                mkswap /swapfile
+                swapon /swapfile
+                echo '/swapfile none swap sw 0 0' >> /etc/fstab
+              fi
+
               apt-get update -y
-              apt-get install -y ca-certificates curl git python3-pip python3-venv
+              apt-get install -y ca-certificates curl git python3-pip python3-venv build-essential
 
               # Prepare app directory
               rm -rf /opt/opsmind
@@ -103,8 +112,8 @@ resource "aws_instance" "opsmind_host" {
 
               # Setup Python virtual environment & dependencies
               python3 -m venv /opt/opsmind/.venv
-              /opt/opsmind/.venv/bin/pip install --upgrade pip
-              /opt/opsmind/.venv/bin/pip install -r /opt/opsmind/requirements.txt
+              /opt/opsmind/.venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
+              /opt/opsmind/.venv/bin/pip install --no-cache-dir -r /opt/opsmind/requirements.txt
 
               # Write production environment configuration
               cat << 'ENVFILE' > /opt/opsmind/.env
