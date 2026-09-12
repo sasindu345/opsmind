@@ -144,6 +144,7 @@ resource "aws_instance" "opsmind_host" {
               Type=simple
               User=ubuntu
               WorkingDirectory=/opt/opsmind
+              Environment=PYTHONPATH=/opt/opsmind
               EnvironmentFile=/opt/opsmind/.env
               ExecStart=/opt/opsmind/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8000
               Restart=always
@@ -163,6 +164,7 @@ resource "aws_instance" "opsmind_host" {
               Type=simple
               User=ubuntu
               WorkingDirectory=/opt/opsmind
+              Environment=PYTHONPATH=/opt/opsmind
               EnvironmentFile=/opt/opsmind/.env
               ExecStart=/opt/opsmind/.venv/bin/python -m src.cli.opsmind_cli worker --interval 0.5
               Restart=always
