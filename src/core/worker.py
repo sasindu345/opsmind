@@ -259,7 +259,17 @@ class IncidentWorker:
         settings: Settings | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.queue = queue or get_local_queue()
+        if queue is not None:
+            self.queue = queue
+        elif self.settings.is_aws and self.settings.sqs_queue_url:
+            self.queue = SQSIncidentQueue(
+                queue_url=self.settings.sqs_queue_url,
+                dlq_url=self.settings.sqs_dlq_url,
+                region=self.settings.aws_region,
+                settings=self.settings,
+            )
+        else:
+            self.queue = get_local_queue()
         self.processed_count: int = 0
         self.failure_count: int = 0
         self._running: bool = False
