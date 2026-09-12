@@ -103,3 +103,13 @@ resource "aws_instance" "opsmind_host" {
     Name = "${local.name_prefix}-host"
   }
 }
+
+resource "aws_eip" "opsmind_eip" {
+  instance = aws_instance.opsmind_host.id
+  domain   = "vpc"
+
+  tags = {
+    Name = "${local.name_prefix}-eip"
+  }
+}
+

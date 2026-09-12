@@ -18,6 +18,8 @@ tar -czf "$ARCHIVE" \
   --exclude='*.pyc' \
   --exclude='.pytest_cache' \
   --exclude='.ruff_cache' \
+  --exclude='node_modules' \
+  --exclude='package-lock.json' \
   --exclude='data' \
   --exclude='reports' \
   -C "$ROOT_DIR" \
