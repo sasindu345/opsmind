@@ -39,3 +39,58 @@ class QueuedIncidentResponse(BaseModel):
     service: str
     environment: str
     queued_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ApplicationCreate(BaseModel):
+    """Payload to register a new application for monitoring."""
+
+    app_id: str | None = Field(
+        default=None,
+        description="Optional custom identifier (e.g. 'checkout-api').",
+    )
+    name: str = Field(min_length=1, max_length=100, description="Application display name.")
+    description: str = Field(default="", max_length=500)
+    environment: str = Field(
+        default="production",
+        description="Environment (production, staging, dev).",
+    )
+    owner_team: str = Field(default="devops", description="Owning team.")
+    health_url: str = Field(default="", description="HTTP/HTTPS health check endpoint.")
+    probe_interval_seconds: int = Field(
+        default=30,
+        ge=5,
+        le=3600,
+        description="Probe interval in seconds.",
+    )
+
+
+class ApplicationUpdate(BaseModel):
+    """Payload to update an existing application."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    environment: str | None = Field(default=None)
+    owner_team: str | None = Field(default=None)
+    health_url: str | None = Field(default=None)
+    probe_interval_seconds: int | None = Field(default=None, ge=5, le=3600)
+    health_status: str | None = Field(default=None)
+
+
+class ApplicationResponse(BaseModel):
+    """Serialized application representation."""
+
+    app_id: str
+    name: str
+    description: str
+    environment: str
+    owner_team: str
+    health_url: str
+    probe_interval_seconds: int
+    health_status: str
+    consecutive_failures: int
+    current_latency_ms: float
+    uptime_24h_percent: float
+    last_probe_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+

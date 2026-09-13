@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { createRoot } from "react-dom/client";
+import { AppShell } from "./components/AppShell";
+import { OverviewPage } from "./pages/OverviewPage";
+import { ApplicationsPage } from "./pages/ApplicationsPage";
 
 // ==============================================================================
 // Preset Incident Scenarios for Interactive Triage Playground
@@ -110,8 +113,8 @@ const RUNBOOKS_CATALOG = [
 // Main OpsMind Dashboard Application Component
 // ==============================================================================
 export function App() {
-  // Navigation
-  const [activeTab, setActiveTab] = useState("incidents");
+  // Navigation (default to overview)
+  const [activeTab, setActiveTab] = useState("overview");
 
   // System & Environment Status
   const [systemStatus, setSystemStatus] = useState({
@@ -127,6 +130,41 @@ export function App() {
     : "http://localhost:8000";
   const [customHostUrl, setCustomHostUrl] = useState(detectedOrigin);
   const activeBaseUrl = (customHostUrl || detectedOrigin).replace(/\/+$/, "");
+
+  // Applications Inventory State
+  const [applications, setApplications] = useState([]);
+  const [isLoadingApps, setIsLoadingApps] = useState(true);
+
+  // Beginner vs Engineer Mode State
+  const [mode, setMode] = useState(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return window.localStorage.getItem("opsmind_mode") || "beginner";
+    }
+    return "beginner";
+  });
+
+  const handleModeToggle = (newMode) => {
+    setMode(newMode);
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("opsmind_mode", newMode);
+    }
+    showToast(`Switched to ${newMode === "beginner" ? "Beginner Mode (Simplified)" : "Engineer Mode (Full Diagnostics)"}`, "info");
+  };
+
+  const fetchApplications = async () => {
+    setIsLoadingApps(true);
+    try {
+      const res = await fetch(`${activeBaseUrl}/api/v1/applications`);
+      if (res.ok) {
+        const data = await res.json();
+        setApplications(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch applications:", err);
+    } finally {
+      setIsLoadingApps(false);
+    }
+  };
 
   // Incidents Stream State
   const [incidents, setIncidents] = useState([]);
@@ -178,33 +216,33 @@ export function App() {
   const copyToClipboard = (text, label) => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text);
-      showToast(`Copied ${label || "text"} to clipboard!`, "success");
+      showToast(`${label || "Content"} copied to clipboard!`, "success");
     }
   };
 
-  // Fetch system readiness status
+  // API Call: Fetch System Status
   const fetchSystemStatus = async () => {
     try {
-      const res = await fetch("/readyz");
+      const res = await fetch(`${activeBaseUrl}/readyz`);
       if (res.ok) {
         const data = await res.json();
         setSystemStatus(data);
       }
-    } catch (err) {
-      console.warn("Could not query /readyz:", err);
+    } catch {
+      // Fallback
     }
   };
 
-  // Fetch incidents list
+  // API Call: Fetch Incidents Stream
   const fetchIncidents = async () => {
     try {
-      const res = await fetch("/api/v1/incidents?limit=50");
+      const res = await fetch(`${activeBaseUrl}/api/v1/incidents?limit=50`);
       if (res.ok) {
         const data = await res.json();
         setIncidents(data);
       }
-    } catch (err) {
-      console.error("Failed to fetch incidents:", err);
+    } catch {
+      // Offline fallback
     } finally {
       setIsLoadingIncidents(false);
     }
@@ -214,7 +252,11 @@ export function App() {
   useEffect(() => {
     fetchSystemStatus();
     fetchIncidents();
-    const interval = setInterval(fetchIncidents, 10000);
+    fetchApplications();
+    const interval = setInterval(() => {
+      fetchIncidents();
+      fetchApplications();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -520,159 +562,50 @@ export function App() {
 
   return (
     <div className="opsmind-root dark-theme">
-      {/* ==================================================================== */}
-      {/* TOP APPLICATION BAR */}
-      {/* ==================================================================== */}
-      <header className="top-nav">
-        <div className="nav-brand">
-          <div className="logo-icon">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#06B6D4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M2 17L12 22L22 17" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M2 12L12 17L22 12" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <div className="brand-text">
-            <span className="brand-title">OpsMind</span>
-            <span className="brand-badge">
-              {systemStatus.app_env.toUpperCase()} MODE
-            </span>
-          </div>
-        </div>
+      <AppShell
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+        systemStatus={systemStatus}
+        incidentCount={activeIncidentsCount}
+        applicationCount={applications.length}
+        mode={mode}
+        onModeToggle={handleModeToggle}
+        onOpenSearch={() => {}}
+      >
+        {/* ================================================================ */}
+        {/* TAB 0: SYSTEM OVERVIEW */}
+        {/* ================================================================ */}
+        {activeTab === "overview" && (
+          <OverviewPage
+            applications={applications}
+            incidents={incidents}
+            onNavigate={(tab) => setActiveTab(tab)}
+            systemStatus={systemStatus}
+            mode={mode}
+          />
+        )}
 
-        <div className="nav-metrics-summary">
-          <div className="metric-pill">
-            <span className="metric-dot live"></span>
-            <span className="metric-label">System:</span>
-            <span className="metric-value">{systemStatus.status === "ok" ? "Operational" : "Degraded"}</span>
-          </div>
-
-          <div className="metric-pill">
-            <span className="metric-label">Active Incidents:</span>
-            <span className={`metric-value ${activeIncidentsCount > 0 ? "text-amber" : "text-emerald"}`}>
-              {activeIncidentsCount}
-            </span>
-          </div>
-
-          <div className="metric-pill">
-            <span className="metric-label">AI Engine:</span>
-            <span className="metric-value text-cyan" title={systemStatus.llm?.model || "AI Model"}>
-              {systemStatus.llm?.model?.replace("anthropic.", "").slice(0, 24) || "Claude 3 Haiku"}
-            </span>
-          </div>
-
-          <div className="metric-pill host-indicator-pill" title="Live Host Address">
-            <span className="metric-label">Host:</span>
-            <span className="metric-value text-indigo">{activeBaseUrl.replace(/^https?:\/\//, "")}</span>
-          </div>
-        </div>
-
-        <div className="nav-actions">
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              setActiveTab("triage");
+        {/* ================================================================ */}
+        {/* TAB 0.5: APPLICATION FLEET */}
+        {/* ================================================================ */}
+        {activeTab === "applications" && (
+          <ApplicationsPage
+            applications={applications}
+            isLoading={isLoadingApps}
+            onRefresh={fetchApplications}
+            baseUrl={activeBaseUrl}
+            mode={mode}
+            onSelectApplication={(id) => {
+              setServiceFilter(id);
+              setActiveTab("incidents");
             }}
-          >
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            New Triage
-          </button>
-          <a href="/docs" target="_blank" rel="noreferrer" className="btn btn-secondary">
-            API Docs ↗
-          </a>
-        </div>
-      </header>
+          />
+        )}
 
-      {/* ==================================================================== */}
-      {/* MAIN LAYOUT (SIDEBAR + CONTENT) */}
-      {/* ==================================================================== */}
-      <div className="app-layout">
-        {/* SIDEBAR NAVIGATION */}
-        <aside className="sidebar-nav">
-          <div className="sidebar-top-group">
-            <div className="nav-section-title">CONTROL PLANE</div>
-            <nav className="nav-items" role="navigation">
-              <button
-                className={`nav-tab ${activeTab === "incidents" ? "active" : ""}`}
-                onClick={() => setActiveTab("incidents")}
-              >
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <span>Live Incidents</span>
-                {activeIncidentsCount > 0 && (
-                  <span className="badge-count">{activeIncidentsCount}</span>
-                )}
-              </button>
-
-              <button
-                className={`nav-tab ${activeTab === "triage" ? "active" : ""}`}
-                onClick={() => setActiveTab("triage")}
-              >
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <span>Triage Playground</span>
-              </button>
-
-              <button
-                className={`nav-tab ${activeTab === "connect" ? "active" : ""}`}
-                onClick={() => setActiveTab("connect")}
-              >
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                </svg>
-                <span>Connect Webhooks</span>
-              </button>
-
-              <button
-                className={`nav-tab ${activeTab === "remediation" ? "active" : ""}`}
-                onClick={() => setActiveTab("remediation")}
-              >
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-                <span>Safe Runbooks</span>
-              </button>
-
-              <button
-                className={`nav-tab ${activeTab === "memory" ? "active" : ""}`}
-                onClick={() => setActiveTab("memory")}
-              >
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-                <span>Incident Memory (RAG)</span>
-              </button>
-
-              <button
-                className={`nav-tab ${activeTab === "architecture" ? "active" : ""}`}
-                onClick={() => setActiveTab("architecture")}
-              >
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                </svg>
-                <span>Architecture Guide</span>
-              </button>
-            </nav>
-          </div>
-
-          <div className="sidebar-footer">
-            <div className="sidebar-help-card">
-              <div className="help-title">OpsMind Autonomous SRE</div>
-              <div className="help-desc">Correlating git commits, metric thresholds, and AI diagnosis automatically.</div>
-            </div>
-          </div>
-        </aside>
-
-        {/* CONTENT VIEWPORT */}
-        <main className="content-viewport">
-          {/* ================================================================ */}
-          {/* TAB 1: LIVE INCIDENTS */}
-          {/* ================================================================ */}
-          {activeTab === "incidents" && (
+        {/* ================================================================ */}
+        {/* TAB 1: LIVE INCIDENTS */}
+        {/* ================================================================ */}
+        {activeTab === "incidents" && (
             <div className="tab-pane active">
               <div className="section-header">
                 <div>
@@ -1402,8 +1335,105 @@ export function App() {
               </div>
             </div>
           )}
-        </main>
-      </div>
+
+        {/* ================================================================ */}
+        {/* TAB 7: AI OPERATIONS COPILOT */}
+        {/* ================================================================ */}
+        {activeTab === "copilot" && (
+          <div className="tab-pane active">
+            <div className="section-header">
+              <div>
+                <h1 className="page-title">AI Operations Copilot</h1>
+                <p className="page-subtitle">
+                  Ask natural-language questions about your application health, outages, and correlated deployments.
+                </p>
+              </div>
+            </div>
+
+            <div className="app-card" style={{ padding: "28px", maxWidth: "800px", margin: "0 auto", textAlign: "center" }}>
+              <div style={{ fontSize: "2.4rem", marginBottom: "12px" }}>💬</div>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "8px" }}>
+                Interactive AI Copilot Workspace
+              </h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "20px", lineHeight: 1.5 }}>
+                OpsMind inspects active synthetic health probes, correlated deployments, and log error clusters to answer your operational questions with verified evidence.
+              </p>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", marginBottom: "20px" }}>
+                {applications.slice(0, 3).map((a) => (
+                  <button
+                    key={a.app_id}
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.78rem" }}
+                    onClick={() => {
+                      showToast(`Investigating ${a.name}...`, "info");
+                    }}
+                  >
+                    Why is {a.name} {a.health_status === "healthy" ? "healthy?" : "degraded?"}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: "0.78rem" }}
+                  onClick={() => {
+                    showToast("Scanning for recent deployments...", "info");
+                  }}
+                >
+                  What changed in Production today?
+                </button>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Ask OpsMind about service health, latency spikes, or errors..."
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    showToast("Copilot query submitted", "info");
+                  }}
+                >
+                  Ask Copilot
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================ */}
+        {/* TAB 8: REMEDIATION AUDIT LOG */}
+        {/* ================================================================ */}
+        {activeTab === "settings-audit" && (
+          <div className="tab-pane active">
+            <div className="section-header">
+              <div>
+                <h1 className="page-title">Remediation Audit Log</h1>
+                <p className="page-subtitle">
+                  Immutable audit records of all approved and executed remediation runbooks.
+                </p>
+              </div>
+            </div>
+
+            <div className="app-card" style={{ padding: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                <span style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text-primary)" }}>Execution History</span>
+                <span className="badge-count">Audit Active</span>
+              </div>
+              <p style={{ fontSize: "0.825rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                Every runbook action requires explicit human approval with recorded operator identity, parameters, exit code, stdout/stderr, and recovery verification.
+              </p>
+              <div style={{ marginTop: "16px", padding: "12px", background: "rgba(0,0,0,0.25)", borderRadius: "8px", fontFamily: "var(--font-mono)", fontSize: "0.78rem", color: "var(--text-dim)" }}>
+                Logs stored at: <span style={{ color: "var(--accent-cyan)" }}>artifacts/remediations.jsonl</span> &amp; S3
+              </div>
+            </div>
+          </div>
+        )}
+      </AppShell>
 
       {/* ==================================================================== */}
       {/* MODAL: REMEDIATION DRY-RUN & APPROVAL */}

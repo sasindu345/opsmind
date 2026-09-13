@@ -67,6 +67,59 @@ class IncidentRecord:
         )
 
 
+
+@dataclass
+class ApplicationRecord:
+    """Application entity representation stored in repository."""
+
+    app_id: str
+    name: str
+    description: str = ""
+    environment: str = "production"
+    owner_team: str = "devops"
+    health_url: str = ""
+    probe_interval_seconds: int = 30
+    health_status: str = "healthy"
+    consecutive_failures: int = 0
+    current_latency_ms: float = 0.0
+    uptime_24h_percent: float = 100.0
+    last_probe_at: datetime | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+class ApplicationRepository(Protocol):
+    """Abstract application repository protocol."""
+
+    async def save_application(self, app: ApplicationRecord) -> str:
+        """Persist or update an application and return app_id."""
+        ...
+
+    async def get_application(self, app_id: str) -> ApplicationRecord | None:
+        """Retrieve an application by ID."""
+        ...
+
+    async def list_applications(
+        self,
+        environment: str | None = None,
+        limit: int = 100,
+    ) -> list[ApplicationRecord]:
+        """List applications with optional environment filtering."""
+        ...
+
+    async def update_application(
+        self,
+        app_id: str,
+        updates: dict[str, Any],
+    ) -> ApplicationRecord | None:
+        """Update specific fields of an application."""
+        ...
+
+    async def delete_application(self, app_id: str) -> bool:
+        """Delete an application by ID."""
+        ...
+
+
 class IncidentRepository(Protocol):
     """Abstract incident repository protocol."""
 

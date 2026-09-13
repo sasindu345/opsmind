@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from config.settings import Settings, get_settings
-from src.infrastructure.interfaces import IncidentRecord
+from src.infrastructure.interfaces import ApplicationRecord, IncidentRecord
 from src.llm.schemas import AnalysisResult, IncidentStatus
 
 logger = logging.getLogger("opsmind.infrastructure.dynamodb")
@@ -155,3 +155,130 @@ class DynamoDBIncidentRepository:
             artifact_uri=item.get("artifact_uri"),
             timeline_json=timeline,
         )
+
+
+class DynamoDBApplicationRepository:
+    """Stores application records in Amazon DynamoDB."""
+
+    def __init__(
+        self,
+        table_name: str | None = None,
+        region: str | None = None,
+        settings: Settings | None = None,
+    ) -> None:
+        self.settings = settings or get_settings()
+        suffix = "-incidents"
+        base_name = self.settings.dynamodb_table_name.removesuffix(suffix)
+        self.table_name = table_name or f"{base_name}-applications"
+        self.region = region or self.settings.aws_region
+        self._dynamodb = None
+        self._table = None
+
+    def _get_table(self):
+        if self._table is None:
+            import boto3
+
+            self._dynamodb = boto3.resource("dynamodb", region_name=self.region)
+            self._table = self._dynamodb.Table(self.table_name)
+        return self._table
+
+    async def save_application(self, app: ApplicationRecord) -> str:
+        table = self._get_table()
+        item: dict[str, Any] = {
+            "app_id": app.app_id,
+            "name": app.name,
+            "description": app.description,
+            "environment": app.environment,
+            "owner_team": app.owner_team,
+            "health_url": app.health_url,
+            "probe_interval_seconds": app.probe_interval_seconds,
+            "health_status": app.health_status,
+            "consecutive_failures": app.consecutive_failures,
+            "current_latency_ms": Decimal(str(round(app.current_latency_ms, 2))),
+            "uptime_24h_percent": Decimal(str(round(app.uptime_24h_percent, 2))),
+            "created_at": app.created_at.isoformat(),
+            "updated_at": app.updated_at.isoformat(),
+        }
+        if app.last_probe_at:
+            item["last_probe_at"] = app.last_probe_at.isoformat()
+
+        await asyncio.to_thread(table.put_item, Item=item)
+        logger.info("saved application %s (%s) to DynamoDB", app.app_id, app.name)
+        return app.app_id
+
+    async def get_application(self, app_id: str) -> ApplicationRecord | None:
+        table = self._get_table()
+        response = await asyncio.to_thread(table.get_item, Key={"app_id": app_id})
+        item = response.get("Item")
+        if not item:
+            return None
+        return self._item_to_record(item)
+
+    async def list_applications(
+        self,
+        environment: str | None = None,
+        limit: int = 100,
+    ) -> list[ApplicationRecord]:
+        table = self._get_table()
+        scan_kwargs: dict[str, Any] = {"Limit": limit}
+
+        if environment:
+            from boto3.dynamodb.conditions import Attr
+
+            scan_kwargs["FilterExpression"] = Attr("environment").eq(environment)
+
+        response = await asyncio.to_thread(table.scan, **scan_kwargs)
+        items = response.get("Items", [])
+        return [self._item_to_record(item) for item in items]
+
+    async def update_application(
+        self,
+        app_id: str,
+        updates: dict[str, Any],
+    ) -> ApplicationRecord | None:
+        current = await self.get_application(app_id)
+        if not current:
+            return None
+
+        allowed = {
+            "name", "description", "environment", "owner_team", "health_url",
+            "probe_interval_seconds", "health_status", "consecutive_failures",
+            "current_latency_ms", "uptime_24h_percent", "last_probe_at",
+        }
+        filtered = {k: v for k, v in updates.items() if k in allowed}
+        if not filtered:
+            return current
+
+        for k, v in filtered.items():
+            setattr(current, k, v)
+        current.updated_at = datetime.now(UTC)
+
+        await self.save_application(current)
+        return current
+
+    async def delete_application(self, app_id: str) -> bool:
+        table = self._get_table()
+        await asyncio.to_thread(table.delete_item, Key={"app_id": app_id})
+        return True
+
+    def _item_to_record(self, item: dict[str, Any]) -> ApplicationRecord:
+        last_probe_at = (
+            datetime.fromisoformat(item["last_probe_at"]) if item.get("last_probe_at") else None
+        )
+        return ApplicationRecord(
+            app_id=str(item["app_id"]),
+            name=str(item.get("name", "")),
+            description=str(item.get("description", "")),
+            environment=str(item.get("environment", "production")),
+            owner_team=str(item.get("owner_team", "devops")),
+            health_url=str(item.get("health_url", "")),
+            probe_interval_seconds=int(item.get("probe_interval_seconds", 30)),
+            health_status=str(item.get("health_status", "healthy")),
+            consecutive_failures=int(item.get("consecutive_failures", 0)),
+            current_latency_ms=float(item.get("current_latency_ms", 0.0)),
+            uptime_24h_percent=float(item.get("uptime_24h_percent", 100.0)),
+            last_probe_at=last_probe_at,
+            created_at=datetime.fromisoformat(item["created_at"]),
+            updated_at=datetime.fromisoformat(item["updated_at"]),
+        )
+
