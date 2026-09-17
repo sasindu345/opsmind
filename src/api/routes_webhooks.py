@@ -203,6 +203,28 @@ async def github_webhook(
     )
 
     await queue.enqueue(msg)
+    if commit_sha:
+        try:
+            from datetime import UTC, datetime
+
+            from src.core.telemetry import TelemetrySignal
+            from src.infrastructure.factory import get_telemetry_store
+
+            await get_telemetry_store(settings).save_signal(
+                TelemetrySignal(
+                    signal_id=message_id,
+                    source="git",
+                    app_id=service,
+                    service=service,
+                    environment=environment,
+                    timestamp=datetime.now(UTC),
+                    level="INFO",
+                    raw_message=commit_msg,
+                    metadata={"commit_sha": commit_sha, "author": author},
+                )
+            )
+        except Exception:
+            logger.exception("failed to persist git telemetry signal for %s", service)
     logger.info("enqueued github %s event for %s (commit %s)", event_type, service, commit_sha[:7])
 
     return QueuedIncidentResponse(

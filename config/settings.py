@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # --- GitHub ---
     github_webhook_secret: str = ""
 
+    # --- Synthetic probes ---
+    synthetic_probes_enabled: bool = True
+    synthetic_probe_tripwire: int = Field(default=3, ge=1, le=20)
+    synthetic_probe_timeout_seconds: float = 5.0
+
     @field_validator("reports_dir", "artifacts_dir")
     @classmethod
     def _absolute_path(cls, value: Path) -> Path:

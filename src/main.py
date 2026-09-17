@@ -5,7 +5,9 @@ Mounts API feature routers for logs, webhooks, and incident management.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -43,7 +45,35 @@ async def lifespan(app: FastAPI):
         logger.warning("LLM analysis will fail: %s", reason)
     if not settings.slack_enabled:
         logger.info("Slack tokens absent — ChatOps listener disabled")
+
+    probe_task = None
+    if settings.synthetic_probes_enabled and "PYTEST_CURRENT_TEST" not in os.environ:
+        from src.core.synthetic import SyntheticHealthWorker
+        from src.infrastructure.factory import (
+            get_application_repository,
+            get_incident_repository,
+            get_telemetry_store,
+        )
+
+        worker = SyntheticHealthWorker(
+            get_application_repository(settings),
+            get_incident_repository(settings),
+            timeout=settings.synthetic_probe_timeout_seconds,
+            tripwire=settings.synthetic_probe_tripwire,
+            telemetry_store=get_telemetry_store(settings),
+        )
+        probe_task = asyncio.create_task(worker.run())
+        app.state.synthetic_worker = worker
     yield
+    worker = getattr(app.state, "synthetic_worker", None)
+    if worker is not None:
+        worker.stop()
+    if probe_task is not None:
+        probe_task.cancel()
+        try:
+            await probe_task
+        except asyncio.CancelledError:
+            pass
     logger.info("shutting down %s", settings.app_name)
 
 

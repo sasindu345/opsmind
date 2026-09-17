@@ -37,6 +37,7 @@ async def analyze_logs(
     deployments: list[DeploymentRecord] | None = None,
     rag_context: str | None = None,
     persist_incident: bool = True,
+    signals: list | None = None,
 ) -> AnalysisResult:
     """Run one batch of logs + telemetry through the full multi-source triage pipeline."""
     settings = settings or get_settings()
@@ -105,7 +106,22 @@ async def analyze_logs(
         degraded = True
 
     # Combine LLM suggested evidence with deterministic observed evidence
-    combined_evidence = list(dict.fromkeys(corr_result.observed_evidence + analysis.evidence))
+    signal_evidence: list[str] = []
+    deployment_sha = None
+    if signals:
+        from src.core.telemetry import correlate_signals
+
+        unified = correlate_signals(
+            signals,
+            app_id=batch.service,
+            incident_time=batch.occurred_at,
+        )
+        signal_evidence = unified.evidence
+        deployment_sha = unified.deployment_sha
+
+    combined_evidence = list(
+        dict.fromkeys(corr_result.observed_evidence + signal_evidence + analysis.evidence)
+    )
 
     timeline_views = [
         TimelineItemView(
@@ -131,6 +147,8 @@ async def analyze_logs(
         token_reduction=reduction,
         model="" if degraded else client.model,
         degraded=degraded,
+        app_id=batch.service,
+        deployment_sha=deployment_sha,
     )
 
     if batch.generate_report:

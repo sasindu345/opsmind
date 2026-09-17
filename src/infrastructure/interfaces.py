@@ -30,6 +30,7 @@ class IncidentRecord:
     confidence: float = 0.0
     model: str = ""
     degraded: bool = False
+    app_id: str | None = None
     deployment_sha: str | None = None
     deployment_author: str | None = None
     evidence_summary: list[str] = field(default_factory=list)
@@ -43,6 +44,8 @@ class IncidentRecord:
             incident_id=result.incident_id,
             service=result.service,
             environment=result.environment,
+            app_id=result.app_id,
+            deployment_sha=result.deployment_sha,
             severity=result.analysis.severity.value,
             status=result.status.value,
             created_at=result.created_at,
@@ -88,6 +91,20 @@ class ApplicationRecord:
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
+@dataclass
+class HealthProbeSnapshot:
+    """One synthetic health-check sample for an application."""
+
+    probe_id: str
+    app_id: str
+    timestamp: datetime
+    http_status: int
+    latency_ms: float
+    is_success: bool
+    error_message: str | None = None
+    resolved_ip: str | None = None
+
+
 class ApplicationRepository(Protocol):
     """Abstract application repository protocol."""
 
@@ -117,6 +134,19 @@ class ApplicationRepository(Protocol):
 
     async def delete_application(self, app_id: str) -> bool:
         """Delete an application by ID."""
+        ...
+
+    async def save_probe_snapshot(self, snapshot: HealthProbeSnapshot) -> str:
+        """Persist one health probe sample and return probe_id."""
+        ...
+
+    async def list_probe_snapshots(
+        self,
+        app_id: str,
+        since: datetime | None = None,
+        limit: int = 500,
+    ) -> list[HealthProbeSnapshot]:
+        """Return recent probe samples for an application, newest first."""
         ...
 
 

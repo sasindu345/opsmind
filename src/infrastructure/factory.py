@@ -58,6 +58,18 @@ def get_event_publisher(settings: Settings | None = None) -> EventPublisher:
     return LocalEventPublisher()
 
 
+def get_telemetry_store(settings: Settings | None = None):
+    """Return the telemetry signal store for the active deployment mode."""
+    settings = settings or get_settings()
+    if settings.deployment_mode == DeploymentMode.AWS:
+        from src.infrastructure.aws.repository import DynamoDBTelemetryStore
+
+        return DynamoDBTelemetryStore(settings=settings)
+    from src.core.telemetry import SQLiteTelemetryStore
+
+    return SQLiteTelemetryStore(SQLiteApplicationRepository(settings=settings).db_path)
+
+
 def get_secret_manager(settings: Settings | None = None) -> SecretManager:
     """Return secret manager implementation based on configured deployment mode."""
     settings = settings or get_settings()

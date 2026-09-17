@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import PROJECT_ROOT, Settings, get_settings
-from src.infrastructure.interfaces import ApplicationRecord, IncidentRecord
+from src.infrastructure.interfaces import ApplicationRecord, HealthProbeSnapshot, IncidentRecord
 from src.llm.schemas import AnalysisResult, IncidentStatus
 
 logger = logging.getLogger("opsmind.infrastructure.sqlite")
@@ -64,7 +64,15 @@ class SQLiteIncidentRepository:
                 )
                 """
             )
+            self._ensure_column(conn, "incidents", "app_id", "TEXT")
+            self._ensure_column(conn, "incidents", "deployment_sha", "TEXT")
             conn.commit()
+
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table: str, column: str, typedef: str) -> None:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
 
     async def save_incident(self, result: AnalysisResult) -> str:
         record = IncidentRecord.from_analysis_result(result)
@@ -74,8 +82,8 @@ class SQLiteIncidentRepository:
                 INSERT OR REPLACE INTO incidents (
                     incident_id, service, environment, severity, status, created_at, resolved_at,
                     title, probable_cause, confidence, model, degraded, evidence_json,
-                    report_uri, artifact_uri, timeline_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    report_uri, artifact_uri, timeline_json, app_id, deployment_sha
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.incident_id,
@@ -94,6 +102,8 @@ class SQLiteIncidentRepository:
                     record.report_uri,
                     record.artifact_uri,
                     json.dumps(record.timeline_json),
+                    record.app_id,
+                    record.deployment_sha,
                 ),
             )
             conn.commit()
@@ -166,6 +176,8 @@ class SQLiteIncidentRepository:
             model=row["model"] or "",
             degraded=bool(row["degraded"]),
             evidence_summary=evidence,
+            app_id=row["app_id"] if "app_id" in row.keys() else None,
+            deployment_sha=row["deployment_sha"] if "deployment_sha" in row.keys() else None,
             report_uri=row["report_uri"],
             artifact_uri=row["artifact_uri"],
             timeline_json=timeline,
@@ -215,6 +227,26 @@ class SQLiteApplicationRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS health_probe_snapshots (
+                    probe_id TEXT PRIMARY KEY,
+                    app_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    http_status INTEGER NOT NULL,
+                    latency_ms REAL NOT NULL,
+                    is_success INTEGER NOT NULL,
+                    error_message TEXT,
+                    resolved_ip TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_health_probes_app_ts
+                ON health_probe_snapshots(app_id, timestamp)
                 """
             )
             conn.commit()
@@ -315,8 +347,61 @@ class SQLiteApplicationRepository:
     async def delete_application(self, app_id: str) -> bool:
         with self._get_connection() as conn:
             cursor = conn.execute("DELETE FROM applications WHERE app_id = ?", (app_id,))
+            conn.execute("DELETE FROM health_probe_snapshots WHERE app_id = ?", (app_id,))
             conn.commit()
             return cursor.rowcount > 0
+
+    async def save_probe_snapshot(self, snapshot: HealthProbeSnapshot) -> str:
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO health_probe_snapshots (
+                    probe_id, app_id, timestamp, http_status, latency_ms,
+                    is_success, error_message, resolved_ip
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot.probe_id,
+                    snapshot.app_id,
+                    snapshot.timestamp.isoformat(),
+                    snapshot.http_status,
+                    snapshot.latency_ms,
+                    1 if snapshot.is_success else 0,
+                    snapshot.error_message,
+                    snapshot.resolved_ip,
+                ),
+            )
+            conn.commit()
+        return snapshot.probe_id
+
+    async def list_probe_snapshots(
+        self,
+        app_id: str,
+        since: datetime | None = None,
+        limit: int = 500,
+    ) -> list[HealthProbeSnapshot]:
+        query = "SELECT * FROM health_probe_snapshots WHERE app_id = ?"
+        params: list[object] = [app_id]
+        if since is not None:
+            query += " AND timestamp >= ?"
+            params.append(since.isoformat())
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        with self._get_connection() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._probe_row_to_snapshot(row) for row in rows]
+
+    def _probe_row_to_snapshot(self, row: sqlite3.Row) -> HealthProbeSnapshot:
+        return HealthProbeSnapshot(
+            probe_id=row["probe_id"],
+            app_id=row["app_id"],
+            timestamp=datetime.fromisoformat(row["timestamp"]),
+            http_status=int(row["http_status"]),
+            latency_ms=float(row["latency_ms"]),
+            is_success=bool(row["is_success"]),
+            error_message=row["error_message"],
+            resolved_ip=row["resolved_ip"],
+        )
 
     def _row_to_record(self, row: sqlite3.Row) -> ApplicationRecord:
         created_at = datetime.fromisoformat(row["created_at"])

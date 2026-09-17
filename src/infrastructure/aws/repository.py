@@ -10,7 +10,8 @@ from decimal import Decimal
 from typing import Any
 
 from config.settings import Settings, get_settings
-from src.infrastructure.interfaces import ApplicationRecord, IncidentRecord
+from src.core.telemetry import TelemetrySignal
+from src.infrastructure.interfaces import ApplicationRecord, HealthProbeSnapshot, IncidentRecord
 from src.llm.schemas import AnalysisResult, IncidentStatus
 
 logger = logging.getLogger("opsmind.infrastructure.dynamodb")
@@ -64,6 +65,10 @@ class DynamoDBIncidentRepository:
             item["report_uri"] = record.report_uri
         if record.artifact_uri:
             item["artifact_uri"] = record.artifact_uri
+        if record.app_id:
+            item["app_id"] = record.app_id
+        if record.deployment_sha:
+            item["deployment_sha"] = record.deployment_sha
 
         await asyncio.to_thread(table.put_item, Item=item)
         logger.info(
@@ -151,6 +156,8 @@ class DynamoDBIncidentRepository:
             model=str(item.get("model", "")),
             degraded=bool(item.get("degraded", False)),
             evidence_summary=list(item.get("evidence_summary", [])),
+            app_id=item.get("app_id"),
+            deployment_sha=item.get("deployment_sha"),
             report_uri=item.get("report_uri"),
             artifact_uri=item.get("artifact_uri"),
             timeline_json=timeline,
@@ -173,6 +180,7 @@ class DynamoDBApplicationRepository:
         self.region = region or self.settings.aws_region
         self._dynamodb = None
         self._table = None
+        self._probes_table = None
 
     def _get_table(self):
         if self._table is None:
@@ -261,6 +269,77 @@ class DynamoDBApplicationRepository:
         await asyncio.to_thread(table.delete_item, Key={"app_id": app_id})
         return True
 
+    def _probes_table_name(self) -> str:
+        return f"{self.table_name}-probes"
+
+    def _get_probes_table(self):
+        if not hasattr(self, "_probes_table") or self._probes_table is None:
+            import boto3
+
+            self._probes_table = boto3.resource("dynamodb", region_name=self.region).Table(
+                self._probes_table_name()
+            )
+        return self._probes_table
+
+    async def save_probe_snapshot(self, snapshot: HealthProbeSnapshot) -> str:
+        table = self._get_probes_table()
+        item: dict[str, Any] = {
+            "probe_id": snapshot.probe_id,
+            "app_id": snapshot.app_id,
+            "timestamp": snapshot.timestamp.isoformat(),
+            "http_status": snapshot.http_status,
+            "latency_ms": Decimal(str(round(snapshot.latency_ms, 2))),
+            "is_success": snapshot.is_success,
+        }
+        if snapshot.error_message:
+            item["error_message"] = snapshot.error_message
+        if snapshot.resolved_ip:
+            item["resolved_ip"] = snapshot.resolved_ip
+        await asyncio.to_thread(table.put_item, Item=item)
+        return snapshot.probe_id
+
+    async def list_probe_snapshots(
+        self,
+        app_id: str,
+        since: datetime | None = None,
+        limit: int = 500,
+    ) -> list[HealthProbeSnapshot]:
+        from boto3.dynamodb.conditions import Attr, Key
+
+        table = self._get_probes_table()
+        query_kwargs: dict[str, Any] = {
+            "IndexName": "app_id-timestamp-index",
+            "KeyConditionExpression": Key("app_id").eq(app_id),
+            "ScanIndexForward": False,
+            "Limit": limit,
+        }
+        if since is not None:
+            query_kwargs["KeyConditionExpression"] = Key("app_id").eq(app_id) & Key(
+                "timestamp"
+            ).gte(since.isoformat())
+        try:
+            response = await asyncio.to_thread(table.query, **query_kwargs)
+        except Exception:
+            logger.exception("probe snapshot query failed for %s; falling back to scan", app_id)
+            scan_kwargs: dict[str, Any] = {
+                "FilterExpression": Attr("app_id").eq(app_id),
+                "Limit": limit,
+            }
+            response = await asyncio.to_thread(table.scan, **scan_kwargs)
+        return [self._item_to_snapshot(item) for item in response.get("Items", [])]
+
+    def _item_to_snapshot(self, item: dict[str, Any]) -> HealthProbeSnapshot:
+        return HealthProbeSnapshot(
+            probe_id=str(item["probe_id"]),
+            app_id=str(item["app_id"]),
+            timestamp=datetime.fromisoformat(str(item["timestamp"])),
+            http_status=int(item.get("http_status", 0)),
+            latency_ms=float(item.get("latency_ms", 0.0)),
+            is_success=bool(item.get("is_success", False)),
+            error_message=item.get("error_message"),
+            resolved_ip=item.get("resolved_ip"),
+        )
+
     def _item_to_record(self, item: dict[str, Any]) -> ApplicationRecord:
         last_probe_at = (
             datetime.fromisoformat(item["last_probe_at"]) if item.get("last_probe_at") else None
@@ -280,5 +359,82 @@ class DynamoDBApplicationRepository:
             last_probe_at=last_probe_at,
             created_at=datetime.fromisoformat(item["created_at"]),
             updated_at=datetime.fromisoformat(item["updated_at"]),
+        )
+
+
+class DynamoDBTelemetryStore:
+    """Stores unified telemetry signals in a companion DynamoDB table."""
+
+    def __init__(self, settings: Settings | None = None, table_name: str | None = None) -> None:
+        self.settings = settings or get_settings()
+        base = self.settings.dynamodb_table_name.removesuffix("-incidents")
+        self.table_name = table_name or f"{base}-signals"
+        self.region = self.settings.aws_region
+        self._table = None
+
+    def _get_table(self):
+        if self._table is None:
+            import boto3
+
+            self._table = boto3.resource("dynamodb", region_name=self.region).Table(self.table_name)
+        return self._table
+
+    async def save_signal(self, signal: TelemetrySignal) -> str:
+        item: dict[str, Any] = {
+            "signal_id": signal.signal_id,
+            "source": signal.source,
+            "app_id": signal.app_id,
+            "service": signal.service,
+            "environment": signal.environment,
+            "timestamp": signal.timestamp.isoformat(),
+            "level": signal.level,
+            "metadata_json": json.dumps(signal.metadata),
+        }
+        if signal.metric_name:
+            item["metric_name"] = signal.metric_name
+        if signal.metric_value is not None:
+            item["metric_value"] = Decimal(str(signal.metric_value))
+        if signal.raw_message:
+            item["raw_message"] = signal.raw_message
+        if signal.pattern_template:
+            item["pattern_template"] = signal.pattern_template
+        await asyncio.to_thread(self._get_table().put_item, Item=item)
+        return signal.signal_id
+
+    async def list_signals(
+        self,
+        app_id: str,
+        since: datetime | None = None,
+        limit: int = 200,
+    ) -> list[TelemetrySignal]:
+        from boto3.dynamodb.conditions import Attr
+
+        response = await asyncio.to_thread(
+            self._get_table().scan,
+            FilterExpression=Attr("app_id").eq(app_id),
+            Limit=limit,
+        )
+        signals = [self._item_to_signal(item) for item in response.get("Items", [])]
+        if since is not None:
+            signals = [signal for signal in signals if signal.timestamp >= since]
+        signals.sort(key=lambda signal: signal.timestamp, reverse=True)
+        return signals[:limit]
+
+    def _item_to_signal(self, item: dict[str, Any]) -> TelemetrySignal:
+        return TelemetrySignal(
+            signal_id=str(item["signal_id"]),
+            source=item.get("source", "log"),
+            app_id=str(item.get("app_id", "")),
+            service=str(item.get("service", "")),
+            environment=str(item.get("environment", "production")),
+            timestamp=datetime.fromisoformat(str(item["timestamp"])),
+            level=str(item.get("level", "INFO")),
+            metric_name=item.get("metric_name"),
+            metric_value=(
+                float(item["metric_value"]) if item.get("metric_value") is not None else None
+            ),
+            raw_message=item.get("raw_message"),
+            pattern_template=item.get("pattern_template"),
+            metadata=json.loads(item.get("metadata_json") or "{}"),
         )
 

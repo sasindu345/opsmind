@@ -5,15 +5,19 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
 from typing import Annotated
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from config.settings import get_settings
 from src.api.schemas import ApplicationCreate, ApplicationResponse, ApplicationUpdate
-from src.infrastructure.factory import get_application_repository
+from src.core.security import SSRFError
+from src.core.synthetic import execute_probe, outcome_to_dict
+from src.infrastructure.factory import (
+    get_application_repository,
+    get_incident_repository,
+    get_telemetry_store,
+)
 from src.infrastructure.interfaces import ApplicationRecord, ApplicationRepository
 
 logger = logging.getLogger("opsmind.api.applications")
@@ -168,56 +172,19 @@ async def probe_application_now(
             detail=f"Application '{app_id}' not found",
         )
 
-    if not app.health_url:
-        return {
-            "app_id": app_id,
-            "status": "skipped",
-            "message": "Application has no configured health_url",
-            "latency_ms": 0.0,
-        }
-
-    start = datetime.now(UTC)
+    settings = get_settings()
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(app.health_url)
-            latency_ms = (datetime.now(UTC) - start).total_seconds() * 1000.0
-            is_success = 200 <= resp.status_code < 400
-            new_status = "healthy" if is_success else "critical"
-            consecutive = 0 if is_success else app.consecutive_failures + 1
-
-            await repo.update_application(
-                app_id,
-                {
-                    "health_status": new_status,
-                    "current_latency_ms": round(latency_ms, 2),
-                    "consecutive_failures": consecutive,
-                    "last_probe_at": datetime.now(UTC),
-                },
-            )
-
-            return {
-                "app_id": app_id,
-                "status": new_status,
-                "http_status": resp.status_code,
-                "latency_ms": round(latency_ms, 2),
-                "is_success": is_success,
-            }
-    except Exception as exc:
-        latency_ms = (datetime.now(UTC) - start).total_seconds() * 1000.0
-        consecutive = app.consecutive_failures + 1
-        await repo.update_application(
-            app_id,
-            {
-                "health_status": "critical",
-                "current_latency_ms": round(latency_ms, 2),
-                "consecutive_failures": consecutive,
-                "last_probe_at": datetime.now(UTC),
-            },
+        outcome = await execute_probe(
+            app,
+            repo,
+            get_incident_repository(settings),
+            timeout=settings.synthetic_probe_timeout_seconds,
+            tripwire=settings.synthetic_probe_tripwire,
+            telemetry_store=get_telemetry_store(settings),
         )
-        return {
-            "app_id": app_id,
-            "status": "critical",
-            "error": str(exc),
-            "latency_ms": round(latency_ms, 2),
-            "is_success": False,
-        }
+    except SSRFError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.public_message,
+        ) from exc
+    return outcome_to_dict(outcome)

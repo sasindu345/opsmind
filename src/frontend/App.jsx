@@ -673,6 +673,11 @@ export function App() {
                             <span className={`sev-badge badge-${sev}`}>{inc.severity}</span>
                             <span className="incident-title">{inc.title || "Incident Report"}</span>
                             <span className="incident-service-tag">{inc.service}</span>
+                            {inc.deployment_sha && (
+                              <span className="incident-service-tag" title={inc.deployment_sha}>
+                                commit {String(inc.deployment_sha).slice(0, 7)}
+                              </span>
+                            )}
                           </div>
                           <div className="incident-meta-right">
                             <span className={`status-tag status-${status}`}>{inc.status}</span>

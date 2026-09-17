@@ -32,11 +32,17 @@ class Severity(StrEnum):
 
 
 class IncidentStatus(StrEnum):
+    DETECTED = "detected"
     OPEN = "open"
     ACKNOWLEDGED = "acknowledged"
     INVESTIGATING = "investigating"
     REMEDIATING = "remediating"
+    REMEDIATION_PROPOSED = "remediation_proposed"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
+    REMEDIATION_EXECUTING = "remediation_executing"
+    VERIFYING = "verifying"
     RESOLVED = "resolved"
+    FAILED = "failed"
     CLOSED = "closed"
 
 
@@ -114,3 +120,5 @@ class AnalysisResult(BaseModel):
     )
     report_path: str | None = None
     artifact_uri: str | None = None
+    app_id: str | None = None
+    deployment_sha: str | None = None

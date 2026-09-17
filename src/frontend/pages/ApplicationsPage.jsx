@@ -40,14 +40,24 @@ export function ApplicationsPage({
       const resp = await fetch(`${baseUrl}/api/v1/applications/${appId}/probe`, {
         method: "POST",
       });
-      const data = await resp.json();
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        setProbeNotice({
+          appId,
+          type: "critical",
+          text: data.detail || `Probe rejected (HTTP ${resp.status})`,
+        });
+        return;
+      }
       if (resp.ok) {
+        const incidentNote = data.incident_opened ? " Incident opened." : "";
+        const recoveredNote = data.recovered ? " Recovered." : "";
         setProbeNotice({
           appId,
           type: data.is_success ? "success" : "critical",
           text: data.is_success
-            ? `Probe passed (HTTP ${data.http_status || 200}, ${data.latency_ms}ms)`
-            : `Probe failed: ${data.error || "Unhealthy status"}`,
+            ? `Probe passed (HTTP ${data.http_status || 200}, ${data.latency_ms}ms).${recoveredNote}`
+            : `Probe failed: ${data.error || "Unhealthy status"}.${incidentNote}`,
         });
         if (onRefresh) onRefresh();
       }
@@ -229,8 +239,8 @@ export function ApplicationsPage({
 
                     {mode === "engineer" && (
                       <div className="metric-stat engineer-only">
-                        <span className="metric-stat-label">Probe Interval</span>
-                        <span className="metric-stat-value">{app.probe_interval_seconds}s</span>
+                        <span className="metric-stat-label">Failures</span>
+                        <span className="metric-stat-value">{app.consecutive_failures || 0}</span>
                       </div>
                     )}
                   </div>
