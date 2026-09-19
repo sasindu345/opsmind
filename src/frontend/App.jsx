@@ -3,6 +3,12 @@ import { createRoot } from "react-dom/client";
 import { AppShell } from "./components/AppShell";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ApplicationsPage } from "./pages/ApplicationsPage";
+import { ApplicationDetailPage } from "./pages/ApplicationDetailPage";
+import { IncidentsPage } from "./pages/IncidentsPage";
+import { IncidentDetailPage } from "./pages/IncidentDetailPage";
+import { RunbooksPage } from "./pages/RunbooksPage";
+import { KnowledgePage } from "./pages/KnowledgePage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 // ==============================================================================
 // Preset Incident Scenarios for Interactive Triage Playground
@@ -132,6 +138,8 @@ export function App() {
   const activeBaseUrl = (customHostUrl || detectedOrigin).replace(/\/+$/, "");
 
   // Applications Inventory State
+  const [selectedAppId, setSelectedAppId] = useState(null);
+  const [selectedIncident, setSelectedIncident] = useState(null);
   const [applications, setApplications] = useState([]);
   const [isLoadingApps, setIsLoadingApps] = useState(true);
 
@@ -580,6 +588,10 @@ export function App() {
             applications={applications}
             incidents={incidents}
             onNavigate={(tab) => setActiveTab(tab)}
+            onSelectApplication={(id) => {
+              setSelectedAppId(id);
+              setActiveTab("application-detail");
+            }}
             systemStatus={systemStatus}
             mode={mode}
           />
@@ -596,8 +608,8 @@ export function App() {
             baseUrl={activeBaseUrl}
             mode={mode}
             onSelectApplication={(id) => {
-              setServiceFilter(id);
-              setActiveTab("incidents");
+              setSelectedAppId(id);
+              setActiveTab("application-detail");
             }}
           />
         )}
@@ -605,145 +617,83 @@ export function App() {
         {/* ================================================================ */}
         {/* TAB 1: LIVE INCIDENTS */}
         {/* ================================================================ */}
+        {activeTab === "application-detail" && (
+          <ApplicationDetailPage
+            app={applications.find((item) => item.app_id === selectedAppId)}
+            incidents={incidents}
+            baseUrl={activeBaseUrl}
+            mode={mode}
+            onBack={() => setActiveTab("applications")}
+            onRefresh={fetchApplications}
+            onOpenIncident={(inc) => {
+              setSelectedIncident(inc);
+              setActiveTab("incident-detail");
+            }}
+          />
+        )}
+
         {activeTab === "incidents" && (
-            <div className="tab-pane active">
-              <div className="section-header">
-                <div>
-                  <h1 className="page-title">Live Incident Stream</h1>
-                  <p className="page-subtitle">
-                    Real-time AI root-cause analysis, Drain3 pattern clusters, and guarded remediation.
-                  </p>
-                </div>
-                <div className="header-filters">
-                  <input
-                    type="text"
-                    className="input-search"
-                    placeholder="Filter by service..."
-                    value={serviceFilter}
-                    onChange={(e) => setServiceFilter(e.target.value)}
-                  />
-                  <select
-                    className="select-filter"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                  >
-                    <option value="">All Statuses</option>
-                    <option value="open">Open</option>
-                    <option value="acknowledged">Acknowledged</option>
-                    <option value="resolved">Resolved</option>
-                  </select>
-                  <button className="btn btn-secondary" onClick={fetchIncidents} title="Refresh incidents">
-                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Refresh
-                  </button>
-                </div>
-              </div>
+          <IncidentsPage
+            incidents={filteredIncidents}
+            isLoading={isLoadingIncidents}
+            serviceFilter={serviceFilter}
+            statusFilter={statusFilter}
+            onServiceFilter={setServiceFilter}
+            onStatusFilter={setStatusFilter}
+            onRefresh={fetchIncidents}
+            onAcknowledge={handleAcknowledge}
+            onResolve={handleResolve}
+            onRemediate={(inc) => handleOpenRemediation(RUNBOOKS_CATALOG[1], inc.incident_id, inc.service)}
+            onPostmortem={handleOpenPostmortem}
+            onOpenIncident={(inc) => {
+              setSelectedIncident(inc);
+              setActiveTab("incident-detail");
+            }}
+            onOpenTriage={() => setActiveTab("triage")}
+            mode={mode}
+          />
+        )}
 
-              {isLoadingIncidents ? (
-                <div className="loading-spinner-wrapper">
-                  <div className="spinner"></div>
-                  <p>Scanning incident repository & telemetry...</p>
-                </div>
-              ) : filteredIncidents.length === 0 ? (
-                <div className="empty-state-placeholder glass-panel">
-                  <svg width="48" height="48" fill="none" stroke="#475569" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p>No incidents match your filter. The system is operating cleanly!</p>
-                  <button className="btn btn-primary mt-3" onClick={() => setActiveTab("triage")}>
-                    Simulate a Test Incident
-                  </button>
-                </div>
-              ) : (
-                <div className="incidents-grid">
-                  {filteredIncidents.map((inc) => {
-                    const sev = (inc.severity || "medium").toLowerCase();
-                    const status = (inc.status || "open").toLowerCase();
-                    const confidencePct = Math.round((inc.confidence || 0.85) * 100);
-                    const timeStr = inc.created_at
-                      ? new Date(inc.created_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })
-                      : "Just now";
+        {activeTab === "incident-detail" && (
+          <IncidentDetailPage
+            incident={selectedIncident}
+            baseUrl={activeBaseUrl}
+            mode={mode}
+            onBack={() => setActiveTab("incidents")}
+            onAcknowledge={handleAcknowledge}
+            onResolve={handleResolve}
+            onRemediate={(inc) => handleOpenRemediation(RUNBOOKS_CATALOG[1], inc.incident_id, inc.service)}
+            onPostmortem={handleOpenPostmortem}
+          />
+        )}
 
-                    return (
-                      <div key={inc.incident_id} className={`incident-card sev-${sev}`}>
-                        <div className="incident-header-row">
-                          <div className="incident-title-area">
-                            <span className={`sev-badge badge-${sev}`}>{inc.severity}</span>
-                            <span className="incident-title">{inc.title || "Incident Report"}</span>
-                            <span className="incident-service-tag">{inc.service}</span>
-                            {inc.deployment_sha && (
-                              <span className="incident-service-tag" title={inc.deployment_sha}>
-                                commit {String(inc.deployment_sha).slice(0, 7)}
-                              </span>
-                            )}
-                          </div>
-                          <div className="incident-meta-right">
-                            <span className={`status-tag status-${status}`}>{inc.status}</span>
-                            <span className="incident-time">{timeStr}</span>
-                          </div>
-                        </div>
+        {(activeTab === "runbooks" || activeTab === "remediation") && (
+          <RunbooksPage
+            runbooks={RUNBOOKS_CATALOG}
+            onPreview={(rb) => handleOpenRemediation(rb)}
+          />
+        )}
 
-                        <div className="incident-body">
-                          <div className="cause-line">
-                            <strong className="text-cyan">Probable Cause:</strong>{" "}
-                            <span>{inc.probable_cause || "Analyzing telemetry signals..."}</span>
-                          </div>
-                          {inc.evidence && inc.evidence.length > 0 && (
-                            <div className="evidence-preview">
-                              <span className="text-dim">Clustered Pattern: </span>
-                              <code>{inc.evidence[0]}</code>
-                            </div>
-                          )}
-                        </div>
+        {(activeTab === "knowledge" || activeTab === "memory") && (
+          <KnowledgePage
+            query={memoryQuery}
+            onQuery={setMemoryQuery}
+            onSearch={handleSearchMemory}
+            isSearching={isSearchingMemory}
+            results={memoryResults}
+            onOpenPostmortem={handleOpenPostmortem}
+            mode={mode}
+          />
+        )}
 
-                        <div className="incident-footer-row">
-                          <div className="confidence-meter">
-                            <span>AI Confidence: {confidencePct}%</span>
-                            <div className="meter-bar">
-                              <div className="meter-fill" style={{ width: `${confidencePct}%` }}></div>
-                            </div>
-                          </div>
-
-                          <div className="incident-action-btns">
-                            {status === "open" && (
-                              <button
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => handleAcknowledge(inc.incident_id)}
-                              >
-                                Acknowledge
-                              </button>
-                            )}
-                            {status !== "resolved" && (
-                              <button
-                                className="btn btn-secondary btn-sm text-emerald"
-                                onClick={() => handleResolve(inc.incident_id)}
-                              >
-                                Resolve
-                              </button>
-                            )}
-                            <button
-                              className="btn btn-primary btn-sm"
-                              onClick={() => handleOpenRemediation(RUNBOOKS_CATALOG[1], inc.incident_id, inc.service)}
-                            >
-                              Remediate
-                            </button>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => handleOpenPostmortem(inc.incident_id)}
-                            >
-                              Postmortem
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+        {(activeTab === "settings" || activeTab === "settings-audit") && (
+          <SettingsPage
+            systemStatus={systemStatus}
+            baseUrl={activeBaseUrl}
+            mode={mode}
+            onOpenSetup={() => setActiveTab("connect")}
+          />
+        )}
 
           {/* ================================================================ */}
           {/* TAB 2: TRIAGE PLAYGROUND */}
@@ -864,10 +814,12 @@ export function App() {
                       </div>
 
                       <div className="triage-section-block">
-                        <h4 className="section-small-title">
+                        <h4 className="section-small-title beginner-only">Repeated error patterns found</h4>
+                        <h4 className="section-small-title engineer-only">
                           Drain3 Log Clusters Identified ({triageResult.clusters_identified || 0}):
                         </h4>
-                        <div className="pattern-cluster-box">
+                        <p className="beginner-only">The same error showed up more than once. Details stay hidden in beginner mode.</p>
+                        <div className="pattern-cluster-box engineer-only">
                           {(triageResult.observed_evidence || []).map((ev, i) => (
                             <div key={i} className="cluster-line">• {ev}</div>
                           ))}
@@ -1154,111 +1106,6 @@ export function App() {
             </div>
           )}
 
-          {/* ================================================================ */}
-          {/* TAB 4: GUARDED SAFE RUNBOOKS */}
-          {/* ================================================================ */}
-          {activeTab === "remediation" && (
-            <div className="tab-pane active">
-              <div className="section-header">
-                <div>
-                  <h1 className="page-title">Guarded Remediation Runbooks</h1>
-                  <p className="page-subtitle">
-                    Allowlist-only execution engine with strict parameter validation, dry-run previews, and immutable audit logs.
-                  </p>
-                </div>
-              </div>
-
-              <div className="runbooks-grid">
-                {RUNBOOKS_CATALOG.map((rb) => (
-                  <div key={rb.id} className="card glass-panel runbook-card">
-                    <div className="runbook-header">
-                      <span className={`risk-badge ${rb.riskClass}`}>{rb.risk} RISK</span>
-                      <h3 className="runbook-name">{rb.name}</h3>
-                    </div>
-                    <p className="runbook-desc">{rb.desc}</p>
-                    <div className="runbook-command-sample">
-                      <code>{rb.command}</code>
-                    </div>
-                    <button
-                      className="btn btn-primary w-full"
-                      onClick={() => handleOpenRemediation(rb)}
-                    >
-                      Configure & Preview Dry-Run
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ================================================================ */}
-          {/* TAB 5: INCIDENT MEMORY (RAG) */}
-          {/* ================================================================ */}
-          {activeTab === "memory" && (
-            <div className="tab-pane active">
-              <div className="section-header">
-                <div>
-                  <h1 className="page-title">Incident Memory & Knowledge Base (RAG)</h1>
-                  <p className="page-subtitle">
-                    Search historical outages and post-mortems using vector semantic similarity.
-                  </p>
-                </div>
-              </div>
-
-              <div className="card glass-panel memory-search-card">
-                <div className="search-bar-row">
-                  <input
-                    type="text"
-                    className="form-control flex-1"
-                    placeholder="Search past incidents (e.g. 'OOMKilled memory peak', 'Redis connection timeout', 'HTTP 504')"
-                    value={memoryQuery}
-                    onChange={(e) => setMemoryQuery(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSearchMemory()}
-                  />
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleSearchMemory}
-                    disabled={isSearchingMemory}
-                  >
-                    {isSearchingMemory ? "Searching..." : "Semantic Search"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="memory-results-container">
-                {memoryResults === null ? (
-                  <div className="empty-state-placeholder glass-panel">
-                    <p className="text-dim">Enter symptoms or error messages above to search OpsMind historical knowledge.</p>
-                  </div>
-                ) : memoryResults.length === 0 ? (
-                  <div className="empty-state-placeholder glass-panel">
-                    <p className="text-dim">No historical incidents found matching your query.</p>
-                  </div>
-                ) : (
-                  memoryResults.map(({ item, score }) => (
-                    <div key={item.incident_id} className="glass-panel memory-result-card">
-                      <div className="memory-card-header">
-                        <div>
-                          <strong className="text-cyan">[{item.service}]</strong>{" "}
-                          <span className="font-semibold">{item.title || "Incident Report"}</span>
-                        </div>
-                        <div className="memory-card-meta">
-                          <span className="score-badge">{score}% match</span>
-                          <span className={`status-tag status-${item.status}`}>{item.status}</span>
-                        </div>
-                      </div>
-                      <div className="memory-card-body">
-                        <div>
-                          <strong>Cause:</strong> {item.probable_cause}
-                        </div>
-                        {item.summary && <p className="text-dim text-sm mt-1">{item.summary}</p>}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
 
           {/* ================================================================ */}
           {/* TAB 6: ARCHITECTURE & OPERATING GUIDE */}
@@ -1410,34 +1257,6 @@ export function App() {
           </div>
         )}
 
-        {/* ================================================================ */}
-        {/* TAB 8: REMEDIATION AUDIT LOG */}
-        {/* ================================================================ */}
-        {activeTab === "settings-audit" && (
-          <div className="tab-pane active">
-            <div className="section-header">
-              <div>
-                <h1 className="page-title">Remediation Audit Log</h1>
-                <p className="page-subtitle">
-                  Immutable audit records of all approved and executed remediation runbooks.
-                </p>
-              </div>
-            </div>
-
-            <div className="app-card" style={{ padding: "20px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                <span style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text-primary)" }}>Execution History</span>
-                <span className="badge-count">Audit Active</span>
-              </div>
-              <p style={{ fontSize: "0.825rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                Every runbook action requires explicit human approval with recorded operator identity, parameters, exit code, stdout/stderr, and recovery verification.
-              </p>
-              <div style={{ marginTop: "16px", padding: "12px", background: "rgba(0,0,0,0.25)", borderRadius: "8px", fontFamily: "var(--font-mono)", fontSize: "0.78rem", color: "var(--text-dim)" }}>
-                Logs stored at: <span style={{ color: "var(--accent-cyan)" }}>artifacts/remediations.jsonl</span> &amp; S3
-              </div>
-            </div>
-          </div>
-        )}
       </AppShell>
 
       {/* ==================================================================== */}
@@ -1507,7 +1326,8 @@ export function App() {
               {dryRunPlan && (
                 <div className="dry-run-preview-box">
                   <div className="preview-badge">DRY-RUN VALIDATED</div>
-                  <div className="preview-command">
+                  <p className="beginner-only">Preview approved. This change will not run until you approve it.</p>
+                  <div className="preview-command engineer-only">
                     <code>{dryRunPlan.command_preview}</code>
                   </div>
                   <div className="preview-meta">

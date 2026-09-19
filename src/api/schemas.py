@@ -94,3 +94,40 @@ class ApplicationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+
+class MetricPoint(BaseModel):
+    """Aggregated latency and success metric bucket."""
+
+    timestamp: datetime
+    avg_latency_ms: float
+    min_latency_ms: float
+    max_latency_ms: float
+    p95_latency_ms: float
+    success_count: int
+    failure_count: int
+    total_count: int
+    availability_percent: float
+
+
+class AvailabilitySegment(BaseModel):
+    """Single time slice for segmented availability bar."""
+
+    timestamp: datetime
+    status: str  # "healthy" | "degraded" | "down" | "nodata"
+    availability_percent: float
+    total_count: int
+
+
+class ApplicationMetricsResponse(BaseModel):
+    """Metrics and availability response for an application."""
+
+    app_id: str
+    range: str
+    uptime_percent: float
+    avg_latency_ms: float
+    p95_latency_ms: float
+    error_rate_percent: float
+    total_probes: int
+    series: list[MetricPoint]
+    availability_segments: list[AvailabilitySegment]
+

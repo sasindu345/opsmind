@@ -18,6 +18,7 @@ from config.settings import PROJECT_ROOT, get_settings
 from src.api.routes_applications import router as applications_router
 from src.api.routes_incidents import router as incidents_router
 from src.api.routes_logs import router as logs_router
+from src.api.routes_metrics import router as metrics_router
 from src.api.routes_webhooks import router as webhooks_router
 
 settings = get_settings()
@@ -91,6 +92,7 @@ app.include_router(logs_router)
 app.include_router(webhooks_router)
 app.include_router(incidents_router)
 app.include_router(applications_router)
+app.include_router(metrics_router)
 
 
 @app.get("/", tags=["dashboard"])

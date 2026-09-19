@@ -12,9 +12,7 @@ export function Sidebar({ activeTab, onSelectTab, incidentCount = 0, application
 
   const secondaryNavItems = [
     { id: "triage", label: "Triage Playground", icon: "🔬" },
-    { id: "webhooks", label: "Integrations & Alerts", icon: "🔌" },
-    { id: "settings-audit", label: "Remediation Audit", icon: "📜" },
-    { id: "developer", label: "Developer & API Docs", icon: "⌘" },
+    { id: "settings", label: "Settings", icon: "⚙" },
   ];
 
   return (
@@ -23,7 +21,9 @@ export function Sidebar({ activeTab, onSelectTab, incidentCount = 0, application
         <span className="sidebar-section-title">Operations</span>
         <nav className="sidebar-nav">
           {primaryNavItems.map((item) => {
-            const isActive = activeTab === item.id;
+            const isActive = activeTab === item.id
+              || (item.id === "incidents" && activeTab === "incident-detail")
+              || (item.id === "applications" && activeTab === "application-detail");
             return (
               <button
                 key={item.id}
@@ -48,7 +48,9 @@ export function Sidebar({ activeTab, onSelectTab, incidentCount = 0, application
         <span className="sidebar-section-title">Settings & Tools</span>
         <nav className="sidebar-nav">
           {secondaryNavItems.map((item) => {
-            const isActive = activeTab === item.id;
+            const isActive = activeTab === item.id
+              || (item.id === "incidents" && activeTab === "incident-detail")
+              || (item.id === "applications" && activeTab === "application-detail");
             return (
               <button
                 key={item.id}

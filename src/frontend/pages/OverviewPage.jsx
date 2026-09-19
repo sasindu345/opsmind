@@ -4,6 +4,7 @@ export function OverviewPage({
   applications = [],
   incidents = [],
   onNavigate,
+  onSelectApplication,
   systemStatus,
   mode = "beginner",
 }) {
@@ -172,7 +173,11 @@ export function OverviewPage({
               <div
                 key={app.app_id}
                 className="app-card"
-                onClick={() => onNavigate && onNavigate("applications")}
+                onClick={() =>
+                  onSelectApplication
+                    ? onSelectApplication(app.app_id)
+                    : onNavigate && onNavigate("applications")
+                }
                 style={{ cursor: "pointer", padding: "14px" }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
