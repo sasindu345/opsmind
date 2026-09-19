@@ -10,16 +10,38 @@ venv/
 # Environment & secrets
 .env
 
-# Data
+# Data & storage
 *.db
 *.sqlite3
 drain3_state.bin
+data/
+artifacts/
+dist/
 
 # Generated reports (keep the directory)
 reports/*.md
 !reports/.gitkeep
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
 # OS / editors
 .DS_Store
 .idea/
 .vscode/
+
+# Node / Frontend build
+node_modules/
+package-lock.json

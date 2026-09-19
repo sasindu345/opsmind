@@ -1,0 +1,22 @@
+{
+  "name": "opsmind",
+  "version": "1.0.0",
+  "description": "> Free & open-source AI platform-engineering and incident-triage engine.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "esbuild src/frontend/App.jsx --bundle --outfile=static/app.js --minify",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

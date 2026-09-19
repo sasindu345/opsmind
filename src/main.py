@@ -1,19 +1,28 @@
 """OpsMind FastAPI entry point.
 
-Phase 0 exposes only health endpoints; feature routers are mounted here as each
-phase lands (see PLAN.md).
+Mounts API feature routers for logs, webhooks, and incident management.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from config.settings import get_settings
+from config.settings import PROJECT_ROOT, get_settings
+from src.api.routes_applications import router as applications_router
+from src.api.routes_incidents import router as incidents_router
+from src.api.routes_logs import router as logs_router
+from src.api.routes_metrics import router as metrics_router
+from src.api.routes_webhooks import router as webhooks_router
 
 settings = get_settings()
+STATIC_DIR = PROJECT_ROOT / "static"
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -25,6 +34,7 @@ logger = logging.getLogger("opsmind")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(
         "starting %s (env=%s, provider=%s, model=%s)",
         settings.app_name,
@@ -36,7 +46,35 @@ async def lifespan(app: FastAPI):
         logger.warning("LLM analysis will fail: %s", reason)
     if not settings.slack_enabled:
         logger.info("Slack tokens absent — ChatOps listener disabled")
+
+    probe_task = None
+    if settings.synthetic_probes_enabled and "PYTEST_CURRENT_TEST" not in os.environ:
+        from src.core.synthetic import SyntheticHealthWorker
+        from src.infrastructure.factory import (
+            get_application_repository,
+            get_incident_repository,
+            get_telemetry_store,
+        )
+
+        worker = SyntheticHealthWorker(
+            get_application_repository(settings),
+            get_incident_repository(settings),
+            timeout=settings.synthetic_probe_timeout_seconds,
+            tripwire=settings.synthetic_probe_tripwire,
+            telemetry_store=get_telemetry_store(settings),
+        )
+        probe_task = asyncio.create_task(worker.run())
+        app.state.synthetic_worker = worker
     yield
+    worker = getattr(app.state, "synthetic_worker", None)
+    if worker is not None:
+        worker.stop()
+    if probe_task is not None:
+        probe_task.cancel()
+        try:
+            await probe_task
+        except asyncio.CancelledError:
+            pass
     logger.info("shutting down %s", settings.app_name)
 
 
@@ -46,6 +84,23 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+app.include_router(logs_router)
+app.include_router(webhooks_router)
+app.include_router(incidents_router)
+app.include_router(applications_router)
+app.include_router(metrics_router)
+
+
+@app.get("/", tags=["dashboard"])
+@app.get("/dashboard", tags=["dashboard"])
+async def serve_dashboard() -> FileResponse:
+    """Serve the interactive OpsMind Web Dashboard."""
+    index_file = STATIC_DIR / "index.html"
+    return FileResponse(index_file)
 
 
 @app.get("/healthz", tags=["system"])
