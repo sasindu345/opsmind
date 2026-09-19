@@ -130,4 +130,3 @@ class ApplicationMetricsResponse(BaseModel):
     total_probes: int
     series: list[MetricPoint]
     availability_segments: list[AvailabilitySegment]
-

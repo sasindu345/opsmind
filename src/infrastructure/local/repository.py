@@ -319,9 +319,17 @@ class SQLiteApplicationRepository:
             return None
 
         allowed = {
-            "name", "description", "environment", "owner_team", "health_url",
-            "probe_interval_seconds", "health_status", "consecutive_failures",
-            "current_latency_ms", "uptime_24h_percent", "last_probe_at",
+            "name",
+            "description",
+            "environment",
+            "owner_team",
+            "health_url",
+            "probe_interval_seconds",
+            "health_status",
+            "consecutive_failures",
+            "current_latency_ms",
+            "uptime_24h_percent",
+            "last_probe_at",
         }
         filtered_updates = {k: v for k, v in updates.items() if k in allowed}
         if not filtered_updates:
@@ -425,4 +433,3 @@ class SQLiteApplicationRepository:
             created_at=created_at,
             updated_at=updated_at,
         )
-

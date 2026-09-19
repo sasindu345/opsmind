@@ -105,17 +105,17 @@ $$\text{Application Health} \longrightarrow \text{Incident} \longrightarrow \tex
 #### 1. `ApplicationRecord`
 ```python
 class ApplicationRecord(BaseModel):
-    app_id: str                      # UUID / slug (e.g. "checkout-api")
-    name: str                        # Human display name ("Checkout API")
-    description: Optional[str]       # Service description
-    environment: str                 # "production" | "staging" | "development"
-    owner_team: str                  # "payments-team"
-    health_url: str                  # "https://api.example.com/healthz"
-    probe_interval_seconds: int = 30 # Default 30s
-    health_status: str               # "healthy" | "degraded" | "critical" | "unknown"
-    consecutive_failures: int = 0    # Tripwire counter
+    app_id: str  # UUID / slug (e.g. "checkout-api")
+    name: str  # Human display name ("Checkout API")
+    description: Optional[str]  # Service description
+    environment: str  # "production" | "staging" | "development"
+    owner_team: str  # "payments-team"
+    health_url: str  # "https://api.example.com/healthz"
+    probe_interval_seconds: int = 30  # Default 30s
+    health_status: str  # "healthy" | "degraded" | "critical" | "unknown"
+    consecutive_failures: int = 0  # Tripwire counter
     current_latency_ms: float = 0.0  # Latest probe latency
-    uptime_24h_percent: float = 100.0# Rolling 24h uptime
+    uptime_24h_percent: float = 100.0  # Rolling 24h uptime
     last_probe_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
@@ -124,14 +124,14 @@ class ApplicationRecord(BaseModel):
 #### 2. `HealthProbeSnapshot`
 ```python
 class HealthProbeSnapshot(BaseModel):
-    probe_id: str                    # UUID
-    app_id: str                      # Foreign key to ApplicationRecord
+    probe_id: str  # UUID
+    app_id: str  # Foreign key to ApplicationRecord
     timestamp: datetime
-    http_status: int                 # e.g. 200, 503, 0 (timeout/network error)
-    latency_ms: float                # Request duration in ms
-    is_success: bool                 # True if 2xx / expected status
-    error_message: Optional[str]     # "Connection timeout after 5000ms"
-    resolved_ip: Optional[str]       # Public IP validated by SSRF filter
+    http_status: int  # e.g. 200, 503, 0 (timeout/network error)
+    latency_ms: float  # Request duration in ms
+    is_success: bool  # True if 2xx / expected status
+    error_message: Optional[str]  # "Connection timeout after 5000ms"
+    resolved_ip: Optional[str]  # Public IP validated by SSRF filter
 ```
 
 #### 3. `TelemetrySignal` (Unified Ingestion Envelope)
@@ -143,8 +143,8 @@ class TelemetrySignal(BaseModel):
     service: str
     environment: str
     timestamp: datetime
-    level: str                       # "INFO", "WARN", "ERROR", "CRITICAL"
-    metric_name: Optional[str]       # e.g. "http_probe_latency", "cpu_utilization"
+    level: str  # "INFO", "WARN", "ERROR", "CRITICAL"
+    metric_name: Optional[str]  # e.g. "http_probe_latency", "cpu_utilization"
     metric_value: Optional[float]
     raw_message: Optional[str]
     pattern_template: Optional[str]  # Extracted by Drain3
@@ -164,12 +164,13 @@ class IncidentStatus(str, Enum):
     RESOLVED = "RESOLVED"
     FAILED = "FAILED"
 
+
 class IncidentRecord(BaseModel):
     incident_id: str
     app_id: str
     service: str
     environment: str
-    title: str                       # Plain-English title
+    title: str  # Plain-English title
     severity: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
     status: IncidentStatus
     start_time: datetime
@@ -177,10 +178,10 @@ class IncidentRecord(BaseModel):
     acknowledged_at: Optional[datetime]
     resolved_at: Optional[datetime]
     probable_root_cause: Optional[str]
-    confidence_score: float          # 0.0 - 1.0 (evidence-backed)
-    blast_radius: List[str]          # Affected downstream services
-    evidence: List[Dict[str, Any]]   # Log clusters, metrics, git commits
-    timeline: List[Dict[str, Any]]   # Chronological sequence of events
+    confidence_score: float  # 0.0 - 1.0 (evidence-backed)
+    blast_radius: List[str]  # Affected downstream services
+    evidence: List[Dict[str, Any]]  # Log clusters, metrics, git commits
+    timeline: List[Dict[str, Any]]  # Chronological sequence of events
     active_remediation_id: Optional[str]
 ```
 
@@ -190,11 +191,11 @@ class RemediationAuditRecord(BaseModel):
     execution_id: str
     incident_id: str
     app_id: str
-    runbook_id: str                  # e.g. "rollback-deployment"
+    runbook_id: str  # e.g. "rollback-deployment"
     requested_action: str
-    parameters: Dict[str, Any]       # Validated against regex allowlists
+    parameters: Dict[str, Any]  # Validated against regex allowlists
     dry_run_output: Optional[str]
-    approved_by: str                 # Operator identity/email
+    approved_by: str  # Operator identity/email
     approval_timestamp: datetime
     execution_timestamp: datetime
     exit_code: int

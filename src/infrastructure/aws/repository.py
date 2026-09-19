@@ -249,9 +249,17 @@ class DynamoDBApplicationRepository:
             return None
 
         allowed = {
-            "name", "description", "environment", "owner_team", "health_url",
-            "probe_interval_seconds", "health_status", "consecutive_failures",
-            "current_latency_ms", "uptime_24h_percent", "last_probe_at",
+            "name",
+            "description",
+            "environment",
+            "owner_team",
+            "health_url",
+            "probe_interval_seconds",
+            "health_status",
+            "consecutive_failures",
+            "current_latency_ms",
+            "uptime_24h_percent",
+            "last_probe_at",
         }
         filtered = {k: v for k, v in updates.items() if k in allowed}
         if not filtered:
@@ -437,4 +445,3 @@ class DynamoDBTelemetryStore:
             pattern_template=item.get("pattern_template"),
             metadata=json.loads(item.get("metadata_json") or "{}"),
         )
-

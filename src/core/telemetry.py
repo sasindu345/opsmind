@@ -87,9 +87,8 @@ def correlate_signals(
     cause = "Correlated telemetry did not identify a single cause."
     if probe is not None and deployment_sha:
         title = f"{app_id} is unavailable after a recent deployment"
-        cause = (
-            f"Health checks failed after deployment {deployment_sha[:7]}"
-            + (f" while logs matched '{template}'." if template else ".")
+        cause = f"Health checks failed after deployment {deployment_sha[:7]}" + (
+            f" while logs matched '{template}'." if template else "."
         )
     elif probe is not None:
         title = f"{app_id} is unavailable"

@@ -70,7 +70,6 @@ class IncidentRecord:
         )
 
 
-
 @dataclass
 class ApplicationRecord:
     """Application entity representation stored in repository."""
