@@ -7,6 +7,7 @@ DIST_DIR="$ROOT_DIR/dist"
 ARCHIVE="$DIST_DIR/opsmind-app.tar.gz"
 
 mkdir -p "$DIST_DIR"
+export COPYFILE_DISABLE=1
 echo "Creating application archive at $ARCHIVE..."
 
 tar -czf "$ARCHIVE" \

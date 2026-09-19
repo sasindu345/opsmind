@@ -23,8 +23,7 @@ ssh -o StrictHostKeyChecking=no "${SSH_USER}@${EC2_HOST}" "
   cd /opt/opsmind
   sudo /opt/opsmind/.venv/bin/pip install --no-cache-dir -r requirements.txt
   sudo systemctl restart opsmind opsmind-worker
-  sleep 3
-  curl -f http://localhost:8000/healthz
+  for i in $(seq 1 15); do curl -s -f http://127.0.0.1:8000/healthz && exit 0 || sleep 2; done; exit 1
 "
 
 echo "=== Deployment Successfully Completed ==="

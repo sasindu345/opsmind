@@ -157,13 +157,12 @@ jobs:
             --instance-ids "${INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
-              "aws s3 cp s3://'${S3_BUCKET}'/deploy/opsmind-app.tar.gz /opt/opsmind.tar.gz",
+              "/opt/opsmind/.venv/bin/python -c \"import boto3; boto3.client('\''s3'\'', region_name='\'''${AWS_REGION}'\'').download_file('\'''${S3_BUCKET}'\'', '\''deploy/opsmind-app.tar.gz'\'', '\''/opt/opsmind.tar.gz'\'')\"",
               "tar -xzf /opt/opsmind.tar.gz -C /opt/opsmind",
               "cd /opt/opsmind",
               "/opt/opsmind/.venv/bin/pip install --no-cache-dir -r requirements.txt",
               "systemctl restart opsmind opsmind-worker",
-              "sleep 4",
-              "curl -f http://localhost:8000/healthz"
+              "for i in $(seq 1 15); do curl -s -f http://127.0.0.1:8000/healthz && exit 0 || sleep 2; done; exit 1"
             ]' \
             --region "${AWS_REGION}" \
             --query "Command.CommandId" \
