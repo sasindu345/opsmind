@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -34,6 +35,18 @@ from src.infrastructure.local.secrets import LocalSecretManager
 from src.main import app as fastapi_app
 
 TOKEN = "ghp_secrettokenvalue"
+
+
+@pytest.fixture(autouse=True)
+def github_dns_stub(monkeypatch):
+    """Keep URL validation active without resolving GitHub over the network."""
+
+    def resolve(host, port, family, socktype):
+        assert host == "api.github.com"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("140.82.112.5", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+
 
 COMMITS = [
     {
