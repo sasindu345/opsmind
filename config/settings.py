@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     slack_bot_token: str = ""
     slack_app_token: str = ""
     slack_default_channel: str = "#incidents"
+    dashboard_base_url: str = Field(
+        default="http://localhost:8000",
+        description="Public dashboard URL used in links sent to Slack.",
+    )
 
     # --- Storage (Local) ---
     database_url: str = "sqlite:///./opsmind.db"

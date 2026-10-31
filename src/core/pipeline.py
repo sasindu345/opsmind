@@ -170,4 +170,23 @@ async def analyze_logs(
         except Exception as exc:
             logger.warning("could not persist incident to repository: %s", exc)
 
+        await _notify_slack(result, settings)
+
     return result
+
+
+async def _notify_slack(result: AnalysisResult, settings: Settings) -> None:
+    """Post an incident card to Slack when tokens are configured.
+
+    Failures are swallowed: a Slack outage must never fail triage.
+    """
+    if not settings.slack_enabled:
+        return
+    try:
+        from src.chatops.block_builder import build_incident_card
+        from src.chatops.slack_app import SlackChatOps
+
+        blocks = build_incident_card(result, base_url=settings.dashboard_base_url)
+        await SlackChatOps(settings).send_incident_notification(blocks)
+    except Exception as exc:
+        logger.warning("could not send Slack incident notification: %s", exc)

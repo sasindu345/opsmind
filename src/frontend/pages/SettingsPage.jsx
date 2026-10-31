@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 const TABS = [
   { id: "integrations", label: "Integrations" },
@@ -6,8 +6,39 @@ const TABS = [
   { id: "developer", label: "Developer API" },
 ];
 
-export function SettingsPage({ systemStatus, baseUrl = "", onOpenSetup, mode = "beginner" }) {
+export function SettingsPage({
+  systemStatus,
+  baseUrl = "",
+  onOpenSetup,
+  mode = "beginner",
+  api,
+  apiKey = "",
+  authRequired = false,
+  onSaveApiKey,
+}) {
   const [tab, setTab] = useState("integrations");
+  const [auditEntries, setAuditEntries] = useState(null);
+  const [auditError, setAuditError] = useState("");
+  const [keyDraft, setKeyDraft] = useState(apiKey);
+
+  useEffect(() => {
+    if (tab !== "audit" || !api) return;
+    let cancelled = false;
+    api
+      .remediationAudit(100)
+      .then((rows) => {
+        if (!cancelled) {
+          setAuditEntries(rows || []);
+          setAuditError("");
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setAuditError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, api]);
   const llmReady = Boolean(systemStatus?.llm?.configured);
   const slackReady = Boolean(systemStatus?.slack_enabled);
 
@@ -63,17 +94,90 @@ export function SettingsPage({ systemStatus, baseUrl = "", onOpenSetup, mode = "
       {tab === "audit" && (
         <div className="app-card" style={{ padding: "18px" }}>
           <h2 style={{ fontSize: "1rem" }}>Remediation audit log</h2>
-          <p>Every approved fix records who approved it, what ran, and whether the service recovered.</p>
-          <p className="engineer-only" style={{ fontFamily: "var(--font-mono)", fontSize: "0.78rem" }}>
-            data/remediation_audit.jsonl
-          </p>
-          <p className="beginner-only">A searchable execution table lands with the verification console. Previews still require approval today.</p>
+          <p>Every approved fix records who approved it, exactly what ran, and whether it was
+            executed for real or only simulated.</p>
+
+          {auditError && <p className="audit-error">Could not load the audit log: {auditError}</p>}
+          {!auditError && auditEntries === null && <p className="muted">Loading audit log...</p>}
+          {!auditError && auditEntries !== null && auditEntries.length === 0 && (
+            <p className="muted">No remediation has been approved yet.</p>
+          )}
+
+          {auditEntries !== null && auditEntries.length > 0 && (
+            <table className="audit-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Runbook</th>
+                  <th>Approved by</th>
+                  <th>Result</th>
+                  <th className="engineer-only">Command</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditEntries.map((entry) => (
+                  <tr key={entry.execution_id}>
+                    <td>{new Date(entry.timestamp).toLocaleString()}</td>
+                    <td>{entry.runbook_id}</td>
+                    <td>{entry.approved_by}</td>
+                    <td>
+                      <span
+                        className={`badge ${entry.simulated ? "badge-degraded" : entry.status === "success" ? "badge-healthy" : "badge-critical"}`}
+                      >
+                        {entry.simulated ? "Simulated" : entry.status}
+                      </span>
+                    </td>
+                    <td className="engineer-only audit-command">{entry.command_preview}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
       {tab === "developer" && (
         <div className="app-card" style={{ padding: "18px" }}>
-          <h2 style={{ fontSize: "1rem" }}>Developer API</h2>
+          <h2 style={{ fontSize: "1rem" }}>API key</h2>
+          <p>
+            {authRequired
+              ? "This server requires an API key for any change. Paste it here to act from the dashboard."
+              : "This server has no API key configured, so changes are open. Set API_KEY to require one."}
+          </p>
+          <div className="api-key-row">
+            <input
+              type="password"
+              value={keyDraft}
+              placeholder="Paste your API key"
+              autoComplete="off"
+              onChange={(event) => setKeyDraft(event.target.value)}
+              aria-label="API key"
+            />
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => onSaveApiKey && onSaveApiKey(keyDraft)}
+            >
+              Save
+            </button>
+            {apiKey && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setKeyDraft("");
+                  if (onSaveApiKey) onSaveApiKey("");
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="field-hint">
+            Kept in this browser tab only, and sent as the X-API-Key header.
+          </p>
+
+          <h2 style={{ fontSize: "1rem", marginTop: "18px" }}>Endpoints</h2>
           <p className="beginner-only">Other tools can send alerts and ask OpsMind about applications. Setup stays in the connection screen.</p>
           <ul className="engineer-only" style={{ fontFamily: "var(--font-mono)", fontSize: "0.78rem" }}>
             <li>GET /healthz</li>
