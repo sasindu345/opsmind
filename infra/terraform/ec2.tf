@@ -31,22 +31,23 @@ resource "aws_security_group" "opsmind_sg" {
   description = "Security group for OpsMind API and worker node"
   vpc_id      = data.aws_vpc.default.id
 
-  # Port 8000 for OpsMind REST API and Webhooks
+  # Application port for the OpsMind REST API, dashboard, and webhooks
   ingress {
     description = "OpsMind REST API & Webhook Ingestion"
-    from_port   = 8000
-    to_port     = 8000
+    from_port   = var.app_port
+    to_port     = var.app_port
     protocol    = "tcp"
-    cidr_blocks = var.allowed_cidr_blocks
+    cidr_blocks = var.app_allowed_cidr_blocks
   }
 
-  # Port 22 for optional SSH
+  # SSH is scoped separately from the app port so a publicly reachable
+  # dashboard never implies a publicly reachable shell.
   ingress {
     description = "SSH Administration"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = var.allowed_cidr_blocks
+    cidr_blocks = var.ssh_allowed_cidr_blocks
   }
 
   # Outbound egress
@@ -97,6 +98,7 @@ resource "aws_instance" "opsmind_host" {
     sqs_dlq_url          = aws_sqs_queue.incidents_dlq.url
     dynamodb_table_name  = aws_dynamodb_table.incidents.name
     eventbridge_bus_name = aws_cloudwatch_event_bus.opsmind_bus.name
+    app_port             = var.app_port
   })
 
   tags = {

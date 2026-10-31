@@ -5,7 +5,7 @@ output "ec2_public_ip" {
 
 output "api_endpoint" {
   description = "Base URL of the OpsMind FastAPI endpoint."
-  value       = "http://${aws_eip.opsmind_eip.public_ip}:8000"
+  value       = "http://${aws_eip.opsmind_eip.public_ip}:${var.app_port}"
 }
 
 output "sqs_queue_url" {
