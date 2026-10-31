@@ -104,6 +104,118 @@ class HealthProbeSnapshot:
     resolved_ip: str | None = None
 
 
+@dataclass
+class MetricMonitorRecord:
+    """A user-defined rule over a signal OpsMind already measures.
+
+    Deliberately narrow: one signal, one comparison, one window, a breach
+    counter and a severity. Expression languages, multi-condition rules, label
+    matchers, silences and notification routing are out of scope, because
+    OpsMind correlates and explains failures rather than replacing Prometheus
+    alerting.
+    """
+
+    monitor_id: str
+    app_id: str
+    name: str
+    # What to watch. All three are derived from data OpsMind already collects.
+    signal_source: str = "probe_latency"  # probe_latency | probe_error_rate | probe_availability
+    mode: str = "threshold"  # threshold | anomaly
+    comparison: str = "gt"  # gt | gte | lt | lte
+    threshold_value: float = 0.0
+    anomaly_method: str = "zscore"  # zscore | iqr
+    window_seconds: int = 900
+    min_samples: int = 5
+    consecutive_breaches_required: int = 2
+    severity: str = "HIGH"
+    enabled: bool = True
+    # Mutable evaluation state.
+    consecutive_breaches: int = 0
+    last_evaluated_at: datetime | None = None
+    last_breached_at: datetime | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass
+class RepositoryRecord:
+    """A GitHub repository linked to an application.
+
+    A first-class entity rather than fields on ``ApplicationRecord``: the poll
+    cursors below change on every cycle, and ``ApplicationRecord`` is
+    serialised by several modules that have no interest in them. The access
+    token is never stored here, only the name of the secret holding it.
+    """
+
+    repo_id: str
+    app_id: str
+    owner: str
+    name: str
+    default_branch: str = "main"
+    token_secret_ref: str = ""
+    poll_interval_seconds: int = 300
+    commits_enabled: bool = True
+    actions_enabled: bool = True
+    # Cursors, so a commit or workflow run is processed exactly once.
+    last_commit_sha: str | None = None
+    commits_etag: str | None = None
+    last_workflow_run_id: int | None = None
+    runs_etag: str | None = None
+    rate_limit_remaining: int | None = None
+    last_polled_at: datetime | None = None
+    last_error: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.owner}/{self.name}"
+
+
+class RepositoryLinkRepository(Protocol):
+    """Abstract persistence for linked GitHub repositories."""
+
+    async def save_repository(self, repo: RepositoryRecord) -> str:
+        """Persist or update a repository link and return repo_id."""
+        ...
+
+    async def get_repository(self, repo_id: str) -> RepositoryRecord | None:
+        """Retrieve a repository link by ID."""
+        ...
+
+    async def list_repositories(self, app_id: str | None = None) -> list[RepositoryRecord]:
+        """List repository links, optionally scoped to one application."""
+        ...
+
+    async def update_repository(
+        self,
+        repo_id: str,
+        updates: dict[str, Any],
+    ) -> RepositoryRecord | None:
+        """Update specific fields of a repository link."""
+        ...
+
+    async def delete_repository(self, repo_id: str) -> bool:
+        """Delete a repository link by ID."""
+        ...
+
+
+def repository_id(owner: str, name: str) -> str:
+    """Deterministic repository id, so the same repo always maps to one record."""
+    return f"{owner}__{name}".lower()
+
+
+def repository_token_secret_ref(repo_id: str) -> str:
+    """Name of the secret holding a repository's access token."""
+    return f"opsmind/github/{repo_id}"
+
+
+SIGNAL_SOURCES = ("probe_latency", "probe_error_rate", "probe_availability")
+MONITOR_MODES = ("threshold", "anomaly")
+COMPARISONS = ("gt", "gte", "lt", "lte")
+ANOMALY_METHODS = ("zscore", "iqr")
+
+
 class ApplicationRepository(Protocol):
     """Abstract application repository protocol."""
 
@@ -146,6 +258,34 @@ class ApplicationRepository(Protocol):
         limit: int = 500,
     ) -> list[HealthProbeSnapshot]:
         """Return recent probe samples for an application, newest first."""
+        ...
+
+    async def save_monitor(self, monitor: MetricMonitorRecord) -> str:
+        """Persist or update a metric monitor and return monitor_id."""
+        ...
+
+    async def get_monitor(self, monitor_id: str) -> MetricMonitorRecord | None:
+        """Retrieve a metric monitor by ID."""
+        ...
+
+    async def list_monitors(
+        self,
+        app_id: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[MetricMonitorRecord]:
+        """List metric monitors, optionally scoped to one application."""
+        ...
+
+    async def update_monitor(
+        self,
+        monitor_id: str,
+        updates: dict[str, Any],
+    ) -> MetricMonitorRecord | None:
+        """Update specific fields of a metric monitor."""
+        ...
+
+    async def delete_monitor(self, monitor_id: str) -> bool:
+        """Delete a metric monitor by ID."""
         ...
 
 
@@ -209,8 +349,20 @@ class EventPublisher(Protocol):
 
 
 class SecretManager(Protocol):
-    """Abstract secret retrieval protocol."""
+    """Abstract secret storage protocol."""
 
     async def get_secret(self, secret_name: str) -> str | None:
         """Retrieve a secret by name."""
+        ...
+
+    async def put_secret(self, secret_name: str, value: str) -> None:
+        """Store or replace a secret.
+
+        Needed so a user-supplied credential, such as a GitHub token pasted in
+        the UI, is never written to a record, a log, or an API response.
+        """
+        ...
+
+    async def delete_secret(self, secret_name: str) -> bool:
+        """Delete a secret, returning whether one was removed."""
         ...

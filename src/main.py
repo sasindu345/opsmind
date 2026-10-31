@@ -16,9 +16,14 @@ from fastapi.staticfiles import StaticFiles
 
 from config.settings import PROJECT_ROOT, get_settings
 from src.api.routes_applications import router as applications_router
+from src.api.routes_copilot import router as copilot_router
 from src.api.routes_incidents import router as incidents_router
 from src.api.routes_logs import router as logs_router
 from src.api.routes_metrics import router as metrics_router
+from src.api.routes_monitors import options_router as monitor_options_router
+from src.api.routes_monitors import router as monitors_router
+from src.api.routes_remediations import router as remediations_router
+from src.api.routes_repositories import router as repositories_router
 from src.api.routes_webhooks import router as webhooks_router
 
 settings = get_settings()
@@ -47,32 +52,70 @@ async def lifespan(app: FastAPI):
     if not settings.slack_enabled:
         logger.info("Slack tokens absent — ChatOps listener disabled")
 
-    probe_task = None
-    if settings.synthetic_probes_enabled and "PYTEST_CURRENT_TEST" not in os.environ:
-        from src.core.synthetic import SyntheticHealthWorker
-        from src.infrastructure.factory import (
-            get_application_repository,
-            get_incident_repository,
-            get_telemetry_store,
-        )
+    background_tasks: list[asyncio.Task[None]] = []
+    stoppables: list[object] = []
 
-        worker = SyntheticHealthWorker(
-            get_application_repository(settings),
-            get_incident_repository(settings),
-            timeout=settings.synthetic_probe_timeout_seconds,
-            tripwire=settings.synthetic_probe_tripwire,
-            telemetry_store=get_telemetry_store(settings),
+    if "PYTEST_CURRENT_TEST" not in os.environ:
+        if settings.synthetic_probes_enabled:
+            from src.core.synthetic import SyntheticHealthWorker
+            from src.infrastructure.factory import (
+                get_application_repository,
+                get_incident_repository,
+                get_telemetry_store,
+            )
+
+            probe_worker = SyntheticHealthWorker(
+                get_application_repository(settings),
+                get_incident_repository(settings),
+                timeout=settings.synthetic_probe_timeout_seconds,
+                tripwire=settings.synthetic_probe_tripwire,
+                telemetry_store=get_telemetry_store(settings),
+            )
+            background_tasks.append(asyncio.create_task(probe_worker.run()))
+            stoppables.append(probe_worker)
+            app.state.synthetic_worker = probe_worker
+
+        if settings.github_polling_enabled:
+            from src.core.github_poller import GitHubRepoPoller
+            from src.infrastructure.factory import (
+                get_repository_link_repository,
+                get_secret_manager,
+                get_telemetry_store,
+            )
+
+            github_poller = GitHubRepoPoller(
+                get_repository_link_repository(settings),
+                get_telemetry_store(settings),
+                get_secret_manager(settings),
+                settings=settings,
+            )
+            background_tasks.append(asyncio.create_task(github_poller.run()))
+            stoppables.append(github_poller)
+            app.state.github_poller = github_poller
+
+        # Without this the queue that webhooks and /analyze/logs/async write to
+        # is never drained, so no incident is ever produced from an ingested event.
+        from src.core.worker import IncidentWorker
+
+        incident_worker = IncidentWorker(settings=settings)
+        background_tasks.append(
+            asyncio.create_task(
+                incident_worker.run_loop(poll_interval=settings.worker_poll_interval_seconds)
+            )
         )
-        probe_task = asyncio.create_task(worker.run())
-        app.state.synthetic_worker = worker
+        stoppables.append(incident_worker)
+        app.state.incident_worker = incident_worker
+        logger.info("incident worker started (queue=%s)", type(incident_worker.queue).__name__)
+
     yield
-    worker = getattr(app.state, "synthetic_worker", None)
-    if worker is not None:
-        worker.stop()
-    if probe_task is not None:
-        probe_task.cancel()
+
+    for stoppable in stoppables:
+        stoppable.stop()
+    for task in background_tasks:
+        task.cancel()
+    for task in background_tasks:
         try:
-            await probe_task
+            await task
         except asyncio.CancelledError:
             pass
     logger.info("shutting down %s", settings.app_name)
@@ -93,6 +136,26 @@ app.include_router(webhooks_router)
 app.include_router(incidents_router)
 app.include_router(applications_router)
 app.include_router(metrics_router)
+app.include_router(remediations_router)
+app.include_router(monitors_router)
+app.include_router(monitor_options_router)
+app.include_router(repositories_router)
+app.include_router(copilot_router)
+
+
+@app.get("/api/v1/session", tags=["system"])
+async def session_info() -> dict[str, object]:
+    """Tell the dashboard whether it must ask the user for an API key.
+
+    Intentionally unauthenticated: the dashboard needs this answer before it can
+    know to prompt for credentials.
+    """
+    return {
+        "auth_required": settings.auth_required,
+        "app_env": settings.app_env,
+        "deployment_mode": settings.deployment_mode.value,
+        "remediation_execution_enabled": settings.remediation_execution_enabled,
+    }
 
 
 @app.get("/", tags=["dashboard"])

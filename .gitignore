@@ -14,9 +14,9 @@ venv/
 *.db
 *.sqlite3
 drain3_state.bin
-data/
-artifacts/
-dist/
+/data/
+/artifacts/
+/dist/
 
 # Generated reports (keep the directory)
 reports/*.md
@@ -44,4 +44,3 @@ terraform.rc
 
 # Node / Frontend build
 node_modules/
-package-lock.json

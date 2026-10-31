@@ -75,7 +75,7 @@ User=ubuntu
 WorkingDirectory=/opt/opsmind
 Environment=PYTHONPATH=/opt/opsmind
 EnvironmentFile=/opt/opsmind/.env
-ExecStart=/opt/opsmind/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/opsmind/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port ${app_port}
 Restart=always
 RestartSec=3
 

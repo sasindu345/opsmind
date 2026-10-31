@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from config.settings import get_settings
 from src.infrastructure.interfaces import IncidentRecord
 from src.llm.schemas import AnalysisResult
 
@@ -22,9 +23,11 @@ def _severity_badge(severity_str: str) -> str:
 
 def build_incident_card(
     incident: AnalysisResult | IncidentRecord,
-    base_url: str = "http://localhost:8000",
+    base_url: str | None = None,
 ) -> list[dict[str, Any]]:
     """Construct an interactive Slack Block Kit message payload."""
+    if base_url is None:
+        base_url = get_settings().dashboard_base_url
     if isinstance(incident, AnalysisResult):
         inc_id = incident.incident_id
         service = incident.service
@@ -131,6 +134,12 @@ def build_incident_card(
                     "style": "danger",
                     "action_id": "remediate_incident",
                     "value": inc_id,
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Open in OpsMind", "emoji": True},
+                    "action_id": "open_incident",
+                    "url": f"{base_url.rstrip('/')}/dashboard?incident={inc_id}",
                 },
             ],
         }

@@ -15,6 +15,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
+from config.settings import Settings, get_settings
+from src.core.monitor_evaluator import MonitorBreach, evaluate_monitor, monitor_incident_id
 from src.core.security import SSRFError, SSRFValidator, ValidatedTarget
 from src.core.telemetry import TelemetrySignal, correlate_signals
 from src.infrastructure.interfaces import (
@@ -22,6 +24,7 @@ from src.infrastructure.interfaces import (
     ApplicationRepository,
     HealthProbeSnapshot,
     IncidentRepository,
+    MetricMonitorRecord,
 )
 from src.llm.schemas import (
     AnalysisResult,
@@ -200,7 +203,7 @@ async def _open_probe_incident(
         else f"{app.name} is unavailable"
     )
     deduped = list(dict.fromkeys(evidence))
-    result = AnalysisResult(
+    baseline = AnalysisResult(
         incident_id=incident_id,
         service=app.app_id,
         environment=app.environment,
@@ -244,9 +247,87 @@ async def _open_probe_incident(
         app_id=app.app_id,
         deployment_sha=unified.deployment_sha,
     )
+    result = await _enrich_with_llm(
+        baseline,
+        app=app,
+        snapshot=snapshot,
+        detail=detail,
+        related_signals=[probe_signal, *(related_signals or [])],
+    )
     await incident_repo.save_incident(result)
     logger.warning("opened synthetic incident %s for %s", incident_id, app.app_id)
     return incident_id, True
+
+
+async def _enrich_with_llm(
+    baseline: AnalysisResult,
+    *,
+    app: ApplicationRecord,
+    snapshot: HealthProbeSnapshot,
+    detail: str,
+    related_signals: list[TelemetrySignal],
+) -> AnalysisResult:
+    """Upgrade a probe outage with LLM root-cause analysis, keeping the baseline on failure.
+
+    The deterministic baseline already describes the outage accurately, so it is
+    preferred over the pipeline's generic heuristic whenever the LLM is unusable.
+    """
+    # Imported lazily: the probe engine is constructed at startup, while the
+    # pipeline pulls in Drain3 and the LLM stack.
+    from src.api.schemas import LogBatch
+    from src.core.pipeline import analyze_logs
+
+    reason = get_settings().missing_llm_credentials()
+    if reason is not None:
+        logger.info("skipping LLM enrichment for %s: %s", app.app_id, reason)
+        return baseline
+
+    log_lines = [
+        f"Synthetic health probe for {app.name} ({app.health_url}) failed: {detail}",
+        f"HTTP status {snapshot.http_status} after {snapshot.latency_ms:.0f}ms",
+    ]
+    log_lines.extend(signal.raw_message for signal in related_signals if signal.raw_message)
+
+    try:
+        enriched = await analyze_logs(
+            LogBatch(
+                service=app.app_id,
+                environment=app.environment,
+                logs=log_lines,
+                occurred_at=snapshot.timestamp,
+                context=(
+                    f"Application '{app.name}' owned by {app.owner_team} failed its synthetic "
+                    f"health check. Diagnose the probable cause and recommend a safe fix."
+                ),
+                generate_report=False,
+            ),
+            incident_id=baseline.incident_id,
+            signals=related_signals,
+            persist_incident=False,
+        )
+    except Exception:
+        logger.exception("LLM enrichment failed for %s, keeping deterministic analysis", app.app_id)
+        return baseline
+
+    if enriched.degraded:
+        return baseline
+
+    analysis = enriched.analysis
+    baseline.analysis.title = analysis.title or baseline.analysis.title
+    baseline.analysis.summary = analysis.summary or baseline.analysis.summary
+    baseline.analysis.probable_cause = analysis.probable_cause or baseline.analysis.probable_cause
+    baseline.analysis.confidence = analysis.confidence
+    if analysis.suggested_fixes:
+        baseline.analysis.suggested_fixes = analysis.suggested_fixes
+    # Severity stays CRITICAL: the application is confirmed unreachable.
+    baseline.analysis.evidence = list(
+        dict.fromkeys([*baseline.observed_evidence, *analysis.evidence])
+    )
+    baseline.clusters = enriched.clusters
+    baseline.inferred_correlation = enriched.inferred_correlation
+    baseline.model = enriched.model
+    baseline.degraded = False
+    return baseline
 
 
 async def execute_probe(
@@ -383,6 +464,137 @@ async def execute_probe(
     )
 
 
+async def evaluate_monitors_for_app(
+    app: ApplicationRecord,
+    app_repo: ApplicationRepository,
+    incident_repo: IncidentRepository,
+    *,
+    now: datetime | None = None,
+    settings: Settings | None = None,
+) -> list[MonitorBreach]:
+    """Evaluate an application's monitors and open incidents for new breaches.
+
+    Called straight after a probe, reusing the probe loop's cadence and its
+    freshly written sample rather than running a second background loop.
+    """
+    settings = settings or get_settings()
+    moment = now or datetime.now(UTC)
+
+    monitors = await app_repo.list_monitors(app_id=app.app_id, enabled_only=True)
+    if not monitors:
+        return []
+
+    longest_window = max(monitor.window_seconds for monitor in monitors)
+    snapshots = await app_repo.list_probe_snapshots(
+        app.app_id,
+        since=moment - timedelta(seconds=longest_window),
+        limit=5000,
+    )
+
+    breaches: list[MonitorBreach] = []
+    for monitor in monitors:
+        breach = evaluate_monitor(monitor, snapshots, now=moment, settings=settings)
+        updates: dict[str, Any] = {"last_evaluated_at": moment}
+
+        if breach is None:
+            # Recovery resets the counter so a later blip starts from zero.
+            if monitor.consecutive_breaches:
+                updates["consecutive_breaches"] = 0
+            await app_repo.update_monitor(monitor.monitor_id, updates)
+            continue
+
+        streak = monitor.consecutive_breaches + 1
+        updates["consecutive_breaches"] = streak
+        updates["last_breached_at"] = moment
+        await app_repo.update_monitor(monitor.monitor_id, updates)
+
+        if streak < monitor.consecutive_breaches_required:
+            logger.info(
+                "monitor %s breached %d/%d times for %s",
+                monitor.monitor_id,
+                streak,
+                monitor.consecutive_breaches_required,
+                app.app_id,
+            )
+            continue
+
+        breaches.append(breach)
+        try:
+            await _open_monitor_incident(app, monitor, breach, incident_repo, settings=settings)
+        except Exception:
+            logger.exception("failed to open incident for monitor %s", monitor.monitor_id)
+
+    return breaches
+
+
+async def _open_monitor_incident(
+    app: ApplicationRecord,
+    monitor: MetricMonitorRecord,
+    breach: MonitorBreach,
+    incident_repo: IncidentRepository,
+    *,
+    settings: Settings,
+) -> str | None:
+    """Create or refresh the incident for a breached monitor."""
+    from src.api.schemas import LogBatch
+    from src.core.pipeline import analyze_logs
+
+    incident_id = monitor_incident_id(monitor.monitor_id)
+    existing = await incident_repo.get_incident(incident_id)
+    if existing is not None and existing.status not in {
+        IncidentStatus.RESOLVED.value,
+        IncidentStatus.CLOSED.value,
+    }:
+        return None
+
+    evidence = [
+        breach.summary,
+        f"Monitor '{monitor.name}' watches {monitor.signal_source} for {app.name}.",
+        f"Condition held for {monitor.consecutive_breaches_required} consecutive checks.",
+        f"Evaluated over {monitor.window_seconds}s using {breach.sample_count} samples.",
+    ]
+    log_lines = [
+        f"Monitor '{monitor.name}' breached for {app.name} ({app.environment}): {breach.summary}",
+        f"Observed {breach.observed_value:.2f} against limit {breach.threshold_value:.2f}.",
+    ]
+
+    # Routed through the pipeline so a breach gets a real root cause and a
+    # suggested fix rather than only the threshold arithmetic.
+    result = await analyze_logs(
+        LogBatch(
+            service=app.app_id,
+            environment=app.environment,
+            logs=log_lines,
+            occurred_at=breach.detected_at,
+            context=(
+                f"A user-configured monitor on {monitor.signal_source} breached for "
+                f"application '{app.name}'. Explain the likely cause and recommend a safe fix."
+            ),
+            generate_report=False,
+        ),
+        incident_id=incident_id,
+        settings=settings,
+        persist_incident=False,
+    )
+
+    result.analysis.evidence = list(dict.fromkeys([*evidence, *result.analysis.evidence]))
+    result.observed_evidence = list(dict.fromkeys([*evidence, *result.observed_evidence]))
+    result.analysis.title = f"{app.name}: {monitor.name}"
+    result.app_id = app.app_id
+    if result.degraded:
+        result.model = "monitor-threshold"
+        result.analysis.summary = breach.summary
+        result.analysis.probable_cause = breach.summary
+    try:
+        result.analysis.severity = Severity(monitor.severity.lower())
+    except ValueError:
+        logger.warning("monitor %s has unknown severity %s", monitor.monitor_id, monitor.severity)
+
+    await incident_repo.save_incident(result)
+    logger.warning("opened monitor incident %s for %s (%s)", incident_id, app.app_id, monitor.name)
+    return incident_id
+
+
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -441,6 +653,18 @@ class SyntheticHealthWorker:
                 logger.warning("skipping probe for %s: %s", app.app_id, exc.public_message)
                 continue
             outcomes.append(outcome)
+
+            # The freshest sample has just landed, so evaluate this app's
+            # monitors now instead of running a second background loop.
+            try:
+                await evaluate_monitors_for_app(
+                    app,
+                    self._app_repo,
+                    self._incident_repo,
+                    now=moment,
+                )
+            except Exception:
+                logger.exception("monitor evaluation failed for %s", app.app_id)
         return outcomes
 
     async def run(self) -> None:

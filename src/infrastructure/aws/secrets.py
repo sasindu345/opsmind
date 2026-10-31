@@ -33,3 +33,35 @@ class AWSSecretManager:
         except Exception as exc:
             logger.warning("failed to fetch secret %s from Secrets Manager: %s", secret_name, exc)
             return None
+
+    async def put_secret(self, secret_name: str, value: str) -> None:
+        client = self._get_client()
+        try:
+            await asyncio.to_thread(
+                client.put_secret_value,
+                SecretId=secret_name,
+                SecretString=value,
+            )
+        except Exception:
+            # The secret does not exist yet, so create it.
+            await asyncio.to_thread(
+                client.create_secret,
+                Name=secret_name,
+                SecretString=value,
+            )
+        # Deliberately logs the name only, never the value.
+        logger.info("stored secret %s in Secrets Manager", secret_name)
+
+    async def delete_secret(self, secret_name: str) -> bool:
+        client = self._get_client()
+        try:
+            await asyncio.to_thread(
+                client.delete_secret,
+                SecretId=secret_name,
+                ForceDeleteWithoutRecovery=True,
+            )
+        except Exception as exc:
+            logger.warning("failed to delete secret %s: %s", secret_name, exc)
+            return False
+        logger.info("deleted secret %s from Secrets Manager", secret_name)
+        return True

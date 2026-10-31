@@ -1,10 +1,17 @@
 import React from "react";
 
-export function Sidebar({ activeTab, onSelectTab, incidentCount = 0, applicationCount = 0 }) {
+export function Sidebar({
+  activeTab,
+  onSelectTab,
+  incidentCount = 0,
+  applicationCount = 0,
+  repositoryCount = 0,
+}) {
   const primaryNavItems = [
     { id: "overview", label: "Overview", icon: "✦", badge: null },
     { id: "applications", label: "Applications", icon: "▦", badge: applicationCount > 0 ? applicationCount : null },
     { id: "incidents", label: "Incidents", icon: "⚠", badge: incidentCount > 0 ? incidentCount : null, alert: incidentCount > 0 },
+    { id: "repositories", label: "Repositories", icon: "◴", badge: repositoryCount > 0 ? repositoryCount : null },
     { id: "copilot", label: "AI Copilot", icon: "💬", badge: "AI" },
     { id: "runbooks", label: "Runbooks", icon: "⚡", badge: null },
     { id: "knowledge", label: "Knowledge", icon: "📖", badge: null },

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from config.settings import get_settings
+from src.api.security import require_api_key
 from src.infrastructure.factory import get_artifact_storage, get_incident_repository
 from src.llm.schemas import IncidentStatus
+from src.memory.vector_store import get_memory_store
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
 
@@ -78,7 +80,11 @@ async def get_incident_endpoint(
     }
 
 
-@router.post("/{incident_id}/acknowledge", response_model=dict[str, str])
+@router.post(
+    "/{incident_id}/acknowledge",
+    response_model=dict[str, str],
+    dependencies=[Depends(require_api_key)],
+)
 async def acknowledge_incident_endpoint(
     incident_id: str,
 ) -> dict[str, str]:
@@ -96,7 +102,11 @@ async def acknowledge_incident_endpoint(
     return {"incident_id": incident_id, "status": "acknowledged"}
 
 
-@router.post("/{incident_id}/resolve", response_model=dict[str, str])
+@router.post(
+    "/{incident_id}/resolve",
+    response_model=dict[str, str],
+    dependencies=[Depends(require_api_key)],
+)
 async def resolve_incident_endpoint(
     incident_id: str,
 ) -> dict[str, str]:
@@ -130,7 +140,11 @@ async def get_incident_timeline_endpoint(
     return record.timeline_json
 
 
-@router.post("/{incident_id}/postmortem", response_model=dict[str, str])
+@router.post(
+    "/{incident_id}/postmortem",
+    response_model=dict[str, str],
+    dependencies=[Depends(require_api_key)],
+)
 async def get_incident_postmortem_endpoint(
     incident_id: str,
 ) -> dict[str, str]:
@@ -166,7 +180,11 @@ class RemediationApproveRequest(BaseModel):
     reason: str = Field(default="Operator approved", description="Approval justification")
 
 
-@router.post("/{incident_id}/remediation/dry-run", response_model=dict[str, Any])
+@router.post(
+    "/{incident_id}/remediation/dry-run",
+    response_model=dict[str, Any],
+    dependencies=[Depends(require_api_key)],
+)
 async def dry_run_remediation_endpoint(
     incident_id: str,
     payload: RemediationDryRunRequest,
@@ -208,7 +226,11 @@ async def dry_run_remediation_endpoint(
         ) from exc
 
 
-@router.post("/{incident_id}/remediation/approve", response_model=dict[str, Any])
+@router.post(
+    "/{incident_id}/remediation/approve",
+    response_model=dict[str, Any],
+    dependencies=[Depends(require_api_key)],
+)
 async def approve_remediation_endpoint(
     incident_id: str,
     payload: RemediationApproveRequest,
@@ -243,6 +265,9 @@ async def approve_remediation_endpoint(
             "stderr": result.stderr,
             "duration_seconds": result.duration_seconds,
             "executed_at": result.executed_at,
+            # The caller must be able to tell a simulated success from a real one.
+            "simulated": result.simulated,
+            "execution_mode": result.execution_mode,
         }
     except ValueError as exc:
         raise HTTPException(
@@ -257,8 +282,6 @@ async def get_similar_incidents_endpoint(
     top_k: int = Query(default=3, ge=1, le=10),
 ) -> list[dict[str, Any]]:
     """Retrieve historical incidents similar to this one via vector embeddings (RAG)."""
-    from src.memory.vector_store import get_memory_store
-
     settings = get_settings()
     repo = get_incident_repository(settings)
     record = await repo.get_incident(incident_id)

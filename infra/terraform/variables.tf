@@ -28,10 +28,29 @@ variable "ssh_public_key" {
   default     = ""
 }
 
-variable "allowed_cidr_blocks" {
+variable "app_allowed_cidr_blocks" {
   type        = list(string)
-  description = "List of IPv4 CIDR blocks permitted to access the OpsMind API port 8000."
+  description = "IPv4 CIDR blocks permitted to reach the OpsMind API and dashboard port."
   default     = ["0.0.0.0/0"]
+}
+
+# Deliberately has no default. SSH was previously open to the world because it
+# shared the permissive app-port variable, so an apply must now name its source
+# networks explicitly.
+variable "ssh_allowed_cidr_blocks" {
+  type        = list(string)
+  description = "IPv4 CIDR blocks permitted to reach SSH. Set to your own address, never 0.0.0.0/0."
+
+  validation {
+    condition     = !contains(var.ssh_allowed_cidr_blocks, "0.0.0.0/0")
+    error_message = "ssh_allowed_cidr_blocks must not be 0.0.0.0/0. Use SSM Session Manager instead."
+  }
+}
+
+variable "app_port" {
+  type        = number
+  description = "TCP port the OpsMind API and dashboard listen on."
+  default     = 8000
 }
 
 variable "log_retention_days" {

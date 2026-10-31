@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from config.settings import get_settings
 from src.api.schemas import ApplicationCreate, ApplicationResponse, ApplicationUpdate
+from src.api.security import require_api_key
 from src.core.security import SSRFError
 from src.core.synthetic import execute_probe, outcome_to_dict
 from src.infrastructure.factory import (
@@ -57,7 +58,12 @@ def _record_to_response(app: ApplicationRecord) -> ApplicationResponse:
     )
 
 
-@router.post("", response_model=ApplicationResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ApplicationResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_api_key)],
+)
 async def create_application(
     payload: ApplicationCreate,
     repo: RepoDep,
@@ -118,7 +124,11 @@ async def get_application(
     return _record_to_response(app)
 
 
-@router.patch("/{app_id}", response_model=ApplicationResponse)
+@router.patch(
+    "/{app_id}",
+    response_model=ApplicationResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def update_application(
     app_id: str,
     payload: ApplicationUpdate,
@@ -144,7 +154,11 @@ async def update_application(
     return _record_to_response(updated)
 
 
-@router.delete("/{app_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{app_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_api_key)],
+)
 async def delete_application(
     app_id: str,
     repo: RepoDep,
@@ -159,7 +173,11 @@ async def delete_application(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{app_id}/probe", response_model=dict[str, object])
+@router.post(
+    "/{app_id}/probe",
+    response_model=dict[str, object],
+    dependencies=[Depends(require_api_key)],
+)
 async def probe_application_now(
     app_id: str,
     repo: RepoDep,

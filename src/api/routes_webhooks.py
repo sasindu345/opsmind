@@ -147,6 +147,60 @@ async def github_webhook(
     commit_msg = ""
     changed_files: list[str] = []
 
+    if event_type == "workflow_run":
+        # A failed CI run is triaged like any other incident, but with the
+        # build-engineer prompt the worker selects for this event type.
+        run = body.get("workflow_run") or {}
+        conclusion = run.get("conclusion") or ""
+        if conclusion != "failure":
+            return QueuedIncidentResponse(
+                status="ignored",
+                message_id=uuid.uuid4().hex,
+                correlation_id=uuid.uuid4().hex,
+                service=service,
+                environment="ci",
+            )
+
+        run_id = int(run.get("id") or 0)
+        owner = body.get("repository", {}).get("owner", {}).get("login", "unknown")
+        message_id = uuid.uuid4().hex
+        correlation_id = uuid.uuid4().hex
+        await get_local_queue().enqueue(
+            IncidentMessage(
+                message_id=message_id,
+                correlation_id=correlation_id,
+                service=service,
+                environment="ci",
+                event_type="github_actions",
+                payload={
+                    "logs": [
+                        f"GitHub Actions workflow '{run.get('name', 'workflow')}' failed on "
+                        f"branch {run.get('head_branch', 'unknown')}.",
+                        f"Run {run_id} triggered by "
+                        f"{run.get('actor', {}).get('login', 'unknown')}.",
+                        f"Commit: {str(run.get('head_sha', ''))[:7]} - {run.get('html_url', '')}",
+                    ],
+                    "context": (
+                        f"GitHub Actions workflow '{run.get('name', 'workflow')}' failed for "
+                        f"{owner}/{repository}. Diagnose the failure and recommend a fix."
+                    ),
+                    "generate_report": False,
+                    "workflow_run_id": run_id,
+                    "repository": f"{owner}/{repository}",
+                },
+                # Matches the poller's id so the same run is never triaged twice.
+                deduplication_id=f"ghrun-{owner}__{repository}-{run_id}".lower(),
+            )
+        )
+        logger.info("enqueued failed github actions run %s for %s", run_id, repository)
+        return QueuedIncidentResponse(
+            status="queued",
+            message_id=message_id,
+            correlation_id=correlation_id,
+            service=service,
+            environment="ci",
+        )
+
     if event_type == "deployment_status":
         deployment = body.get("deployment", {})
         environment = deployment.get("environment", "production")
@@ -207,12 +261,15 @@ async def github_webhook(
         try:
             from datetime import UTC, datetime
 
-            from src.core.telemetry import TelemetrySignal
+            from src.core.telemetry import TelemetrySignal, git_signal_id
             from src.infrastructure.factory import get_telemetry_store
 
+            owner = body.get("repository", {}).get("owner", {}).get("login", "unknown")
             await get_telemetry_store(settings).save_signal(
                 TelemetrySignal(
-                    signal_id=message_id,
+                    # Deterministic so webhook redelivery, and the repository
+                    # poller, cannot create duplicate rows for one commit.
+                    signal_id=git_signal_id(owner, repository, commit_sha),
                     source="git",
                     app_id=service,
                     service=service,

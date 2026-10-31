@@ -38,11 +38,18 @@ async def analyze_logs(
     rag_context: str | None = None,
     persist_incident: bool = True,
     signals: list | None = None,
+    incident_id: str | None = None,
+    system_prompt: str | None = None,
 ) -> AnalysisResult:
-    """Run one batch of logs + telemetry through the full multi-source triage pipeline."""
+    """Run one batch of logs + telemetry through the full multi-source triage pipeline.
+
+    ``incident_id`` lets a caller supply a stable identifier so repeated signals
+    for the same underlying failure update one incident instead of creating many.
+    ``system_prompt`` swaps in a domain-specific brief, such as CI-failure triage.
+    """
     settings = settings or get_settings()
     client = client or LLMClient(settings)
-    incident_id = uuid.uuid4().hex
+    incident_id = incident_id or uuid.uuid4().hex
 
     # 1. Drain3 Log Clustering
     clusters = DrainFilter().cluster(batch.logs)
@@ -99,7 +106,7 @@ async def analyze_logs(
     # 4. LLM Analysis with Fallback
     degraded = False
     try:
-        analysis = await client.analyze(prompt)
+        analysis = await client.analyze(prompt, system_prompt=system_prompt)
     except LLMError as exc:
         logger.error("LLM analysis failed (%s) — falling back to heuristics", exc)
         analysis = heuristic_analysis(cluster_dicts, batch.service)
@@ -163,4 +170,23 @@ async def analyze_logs(
         except Exception as exc:
             logger.warning("could not persist incident to repository: %s", exc)
 
+        await _notify_slack(result, settings)
+
     return result
+
+
+async def _notify_slack(result: AnalysisResult, settings: Settings) -> None:
+    """Post an incident card to Slack when tokens are configured.
+
+    Failures are swallowed: a Slack outage must never fail triage.
+    """
+    if not settings.slack_enabled:
+        return
+    try:
+        from src.chatops.block_builder import build_incident_card
+        from src.chatops.slack_app import SlackChatOps
+
+        blocks = build_incident_card(result, base_url=settings.dashboard_base_url)
+        await SlackChatOps(settings).send_incident_notification(blocks)
+    except Exception as exc:
+        logger.warning("could not send Slack incident notification: %s", exc)

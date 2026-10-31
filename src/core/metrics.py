@@ -23,6 +23,19 @@ _AWS_KEY_PATTERN = re.compile(r"AKIA[0-9A-Z]{16}", re.IGNORECASE)
 _GH_TOKEN_PATTERN = re.compile(r"ghp_[a-zA-Z0-9]{36}", re.IGNORECASE)
 
 
+def percentile(values: list[float], fraction: float) -> float:
+    """Nearest-rank percentile.
+
+    One definition shared by the metrics API and the copilot tools, so the
+    dashboard and an AI answer never report different numbers for the same data.
+    """
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(int(round(fraction * (len(ordered) - 1))), len(ordered) - 1)
+    return round(ordered[index], 2)
+
+
 def sanitize_text(text: str) -> str:
     """Mask credentials, tokens, and secret patterns from text before logging or storing."""
     sanitized = _KV_SECRET_PATTERN.sub(r"\1=[REDACTED]", text)

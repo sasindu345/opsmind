@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
 
 from src.api.schemas import LogBatch, QueuedIncidentResponse
+from src.api.security import require_api_key
 from src.core.pipeline import analyze_logs
 from src.core.worker import IncidentMessage, get_local_queue
 from src.llm.schemas import AnalysisResult
@@ -14,7 +15,11 @@ from src.llm.schemas import AnalysisResult
 router = APIRouter(prefix="/api/v1", tags=["analysis"])
 
 
-@router.post("/analyze/logs", response_model=AnalysisResult)
+@router.post(
+    "/analyze/logs",
+    response_model=AnalysisResult,
+    dependencies=[Depends(require_api_key)],
+)
 async def analyze_logs_endpoint(batch: LogBatch) -> AnalysisResult:
     """Cluster raw logs, run root-cause analysis and emit a Markdown post-mortem synchronously.
 
@@ -28,6 +33,7 @@ async def analyze_logs_endpoint(batch: LogBatch) -> AnalysisResult:
     "/analyze/logs/async",
     response_model=QueuedIncidentResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_api_key)],
 )
 async def analyze_logs_async_endpoint(batch: LogBatch) -> QueuedIncidentResponse:
     """Acknowledge immediately (<50ms) and enqueue incident for asynchronous worker processing."""

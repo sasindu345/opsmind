@@ -49,8 +49,15 @@ class RemediationExecutionResult:
     stdout: str
     stderr: str
     duration_seconds: float
+    # True when nothing actually ran. Callers must be able to tell a simulated
+    # success apart from a real one.
+    simulated: bool = False
     executed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     audit_entry: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def execution_mode(self) -> str:
+        return "simulated" if self.simulated else "executed"
 
 
 class GuardedRemediationRunner:
@@ -125,9 +132,12 @@ class GuardedRemediationRunner:
         stderr = ""
         status = "success"
 
-        if mock_execution or self.settings.deployment_mode.value == "local":
-            # Safe local simulation if binary isn't in test environment
-            stdout = f"[OpsMind Simulated Execution] Ran: {plan.command_preview}"
+        # Simulation is driven by explicit configuration rather than inferred
+        # from the deployment mode, so a real execution is always a deliberate
+        # operator choice and the caller is told which happened.
+        simulated = mock_execution or not self.settings.remediation_execution_enabled
+        if simulated:
+            stdout = f"[OpsMind Simulated Execution] Would run: {plan.command_preview}"
             stderr = ""
             exit_code = 0
             status = "success"
@@ -165,6 +175,8 @@ class GuardedRemediationRunner:
             "parameters": plan.parameters,
             "exit_code": exit_code,
             "status": status,
+            "simulated": simulated,
+            "execution_mode": "simulated" if simulated else "executed",
             "duration_seconds": round(duration, 4),
             "timestamp": datetime.now(UTC).isoformat(),
         }
@@ -183,6 +195,7 @@ class GuardedRemediationRunner:
             stdout=stdout,
             stderr=stderr,
             duration_seconds=round(duration, 4),
+            simulated=simulated,
             audit_entry=audit_entry,
         )
 
@@ -194,6 +207,41 @@ class GuardedRemediationRunner:
                 f.write(json.dumps(entry) + "\n")
         except Exception as exc:
             logger.error("Failed to write remediation audit log: %s", exc)
+
+    def read_audit_entries(
+        self,
+        incident_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return audit entries newest first.
+
+        The runner owns the audit log path, so reading stays here rather than
+        leaking a filesystem location into the API layer.
+        """
+        if not self._audit_log_path.exists():
+            return []
+
+        entries: list[dict[str, Any]] = []
+        try:
+            with open(self._audit_log_path, encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.warning("skipping malformed audit log line")
+                        continue
+                    if incident_id and entry.get("incident_id") != incident_id:
+                        continue
+                    entries.append(entry)
+        except OSError as exc:
+            logger.error("Failed to read remediation audit log: %s", exc)
+            return []
+
+        entries.reverse()
+        return entries[:limit]
 
 
 _runner_instance: GuardedRemediationRunner | None = None

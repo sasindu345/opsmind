@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -15,6 +14,7 @@ from src.api.schemas import (
     AvailabilitySegment,
     MetricPoint,
 )
+from src.core.metrics import percentile
 from src.infrastructure.factory import get_application_repository
 from src.infrastructure.interfaces import ApplicationRepository, HealthProbeSnapshot
 
@@ -44,11 +44,7 @@ def _ensure_utc(dt: datetime) -> datetime:
 
 
 def _compute_p95(values: list[float]) -> float:
-    if not values:
-        return 0.0
-    sorted_vals = sorted(values)
-    idx = max(0, int(math.ceil(0.95 * len(sorted_vals))) - 1)
-    return round(sorted_vals[idx], 2)
+    return percentile(values, 0.95)
 
 
 @router.get("/{app_id}/metrics", response_model=ApplicationMetricsResponse)

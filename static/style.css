@@ -2088,3 +2088,291 @@ body {
 }
 
 
+
+/* ==========================================================================
+   Copilot, monitors, repositories, and audit
+   Added with the conversational copilot, user-configured monitors, and GitHub
+   repository linking. All colours come from the tokens in :root.
+   ========================================================================== */
+
+.page { display: flex; flex-direction: column; gap: 20px; }
+
+.page-header h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+}
+
+.page-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  max-width: 68ch;
+  margin: 0;
+}
+
+.muted { color: var(--text-dim); font-size: 0.85rem; }
+.field-hint { color: var(--text-dim); font-size: 0.75rem; line-height: 1.45; }
+
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.panel-header h2 { font-size: 1.05rem; font-weight: 650; color: var(--text-primary); margin: 0 0 4px; }
+.panel-subtitle { color: var(--text-secondary); font-size: 0.8rem; margin: 0; max-width: 62ch; }
+
+/* --- Copilot ------------------------------------------------------------- */
+
+.copilot-page { max-width: 900px; }
+
+.copilot-empty {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.copilot-empty-title {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 12px;
+}
+
+.copilot-suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.copilot-thread { display: flex; flex-direction: column; gap: 18px; }
+.copilot-message { display: flex; flex-direction: column; gap: 6px; }
+.copilot-user { align-items: flex-end; }
+
+.copilot-bubble {
+  max-width: 78%;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  line-height: 1.6;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.copilot-bubble p { margin: 0 0 6px; }
+.copilot-bubble p:last-child { margin-bottom: 0; }
+
+.copilot-user .copilot-bubble {
+  background: rgba(6, 182, 212, 0.12);
+  border-color: rgba(6, 182, 212, 0.35);
+}
+
+.copilot-bubble-error { border-color: var(--accent-rose); }
+.copilot-thinking { color: var(--text-secondary); font-style: italic; }
+
+.copilot-breadcrumbs { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.breadcrumb {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--accent-emerald);
+}
+
+.breadcrumb-failed {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.3);
+  color: var(--accent-rose);
+}
+
+.copilot-note { font-size: 0.74rem; color: var(--text-dim); margin: 0; }
+
+.copilot-citations { font-size: 0.78rem; color: var(--text-secondary); }
+.copilot-citations summary { cursor: pointer; padding: 4px 0; }
+
+.copilot-citation {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  overflow-x: auto;
+  max-height: 260px;
+  color: var(--text-secondary);
+}
+
+.copilot-composer { display: flex; gap: 10px; }
+
+.copilot-composer input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 11px 14px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+}
+
+.copilot-composer input:focus { outline: none; border-color: var(--border-focus); }
+
+/* --- Monitors ------------------------------------------------------------ */
+
+.monitor-form,
+.repo-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 18px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  align-items: end;
+}
+
+.monitor-form label,
+.repo-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.monitor-form input,
+.monitor-form select,
+.repo-form input,
+.repo-form select,
+.api-key-row input {
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+}
+
+.monitor-form input:focus,
+.monitor-form select:focus,
+.repo-form input:focus,
+.repo-form select:focus,
+.api-key-row input:focus { outline: none; border-color: var(--border-focus); }
+
+.monitor-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.monitor-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.monitor-row-main { display: flex; align-items: flex-start; gap: 12px; }
+.monitor-row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.monitor-name { font-weight: 600; color: var(--text-primary); font-size: 0.9rem; margin: 0 0 3px; }
+.monitor-detail { color: var(--text-secondary); font-size: 0.8rem; margin: 0; }
+.monitor-warning { color: var(--accent-amber); font-size: 0.76rem; margin: 4px 0 0; }
+
+.status-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+.dot-healthy { background: var(--accent-emerald); box-shadow: 0 0 8px rgba(16, 185, 129, 0.5); }
+.dot-idle { background: var(--text-dim); }
+
+/* --- Repositories -------------------------------------------------------- */
+
+.repo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 16px;
+}
+
+.repo-card { display: flex; flex-direction: column; gap: 14px; padding: 18px; }
+.repo-card-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.repo-card-header h3 { font-size: 0.95rem; margin: 0; color: var(--text-primary); font-family: var(--font-mono); }
+
+.repo-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
+.repo-meta dt { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+.repo-meta dd { font-size: 0.82rem; color: var(--text-primary); margin: 2px 0 0; font-family: var(--font-mono); }
+
+.repo-error { color: var(--accent-rose); font-size: 0.78rem; margin: 0; }
+.repo-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* --- Audit table --------------------------------------------------------- */
+
+.audit-table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.8rem; }
+
+.audit-table th {
+  text-align: left;
+  padding: 9px 10px;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.audit-table td { padding: 10px; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); }
+.audit-command { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-primary); }
+.audit-error { color: var(--accent-rose); font-size: 0.82rem; }
+
+.api-key-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0 6px; }
+.api-key-row input { min-width: 260px; flex: 1; }
+
+/* --- Shared badges ------------------------------------------------------- */
+
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.badge-healthy { background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); border: 1px solid rgba(16, 185, 129, 0.3); }
+.badge-degraded { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+.badge-critical { background: rgba(244, 63, 94, 0.15); color: var(--accent-rose); border: 1px solid rgba(244, 63, 94, 0.3); }
+.badge-high { background: rgba(244, 63, 94, 0.12); color: var(--accent-rose); border: 1px solid rgba(244, 63, 94, 0.25); }
+.badge-medium { background: rgba(245, 158, 11, 0.12); color: var(--accent-amber); border: 1px solid rgba(245, 158, 11, 0.25); }
+.badge-low { background: rgba(59, 130, 246, 0.12); color: var(--accent-blue); border: 1px solid rgba(59, 130, 246, 0.25); }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.btn-ghost:hover { color: var(--text-primary); border-color: var(--border-focus); }
+
+@media (max-width: 720px) {
+  .monitor-row { flex-direction: column; align-items: flex-start; }
+  .repo-meta { grid-template-columns: 1fr; }
+  .copilot-bubble { max-width: 100%; }
+}

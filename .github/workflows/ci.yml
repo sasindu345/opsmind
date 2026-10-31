@@ -55,6 +55,33 @@ jobs:
       - name: Run Test Suite
         run: pytest -v
 
+  frontend-build:
+    name: Frontend Bundle Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Frontend Dependencies
+        run: npm ci || npm install
+
+      - name: Rebuild Bundle
+        run: npm run build
+
+      # static/app.js is a committed artifact so the app runs without Node.
+      # A stale bundle means the shipped dashboard does not match its source.
+      - name: Verify Committed Bundle Is Up To Date
+        run: |
+          if ! git diff --exit-code -- static/app.js; then
+            echo "::error::static/app.js is stale. Run 'npm run build' and commit the result."
+            exit 1
+          fi
+
   terraform-validate:
     name: Terraform Infrastructure Validation
     runs-on: ubuntu-latest
@@ -84,32 +111,45 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-  docker-build:
-    name: Docker Container Build Check
-    runs-on: ubuntu-latest
-    needs: [lint, test]
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker Image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: false
-          tags: opsmind:latest
-
   deploy:
     name: Continuous Deployment to AWS EC2
     runs-on: ubuntu-latest
-    needs: [lint, test, docker-build]
+    needs: [lint, test, frontend-build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Declared at job level on purpose: the `secrets` context is not available
+    # in an `if:` expression, and a step's own `env:` is not in scope for its
+    # own `if:`. Job-level env is, so these gates actually evaluate.
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      S3_BUCKET: ${{ vars.OPSMIND_S3_BUCKET }}
+      INSTANCE_ID: ${{ vars.OPSMIND_EC2_INSTANCE_ID }}
+      DEPLOY_HOST: ${{ vars.OPSMIND_DEPLOY_HOST }}
+      APP_PORT: ${{ vars.OPSMIND_APP_PORT }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # No literal bucket, instance id, or host is committed to this repository.
+      # Deployment configuration lives in repository variables and secrets.
+      - name: Validate Deployment Configuration
+        run: |
+          missing=""
+          [ -n "${AWS_REGION}" ]  || missing="${missing} AWS_REGION"
+          [ -n "${DEPLOY_HOST}" ] || missing="${missing} OPSMIND_DEPLOY_HOST"
+          [ -n "${APP_PORT}" ]    || missing="${missing} OPSMIND_APP_PORT"
+          if [ -n "${AWS_ACCESS_KEY_ID}" ]; then
+            [ -n "${S3_BUCKET}" ]   || missing="${missing} OPSMIND_S3_BUCKET"
+            [ -n "${INSTANCE_ID}" ] || missing="${missing} OPSMIND_EC2_INSTANCE_ID"
+          elif [ -z "${EC2_SSH_KEY}" ]; then
+            echo "::error::No deployment credentials. Set AWS_ACCESS_KEY_ID or EC2_SSH_KEY."
+            exit 1
+          fi
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing required repository variables:${missing}"
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -132,72 +172,93 @@ jobs:
           ./scripts/package_app.sh
 
       - name: Configure AWS Credentials
-        if: ${{ env.AWS_ACCESS_KEY_ID != '' }}
+        if: env.AWS_ACCESS_KEY_ID != ''
         uses: aws-actions/configure-aws-credentials@v4
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Deploy via AWS S3 & SSM
-        if: ${{ env.AWS_ACCESS_KEY_ID != '' }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          S3_BUCKET: ${{ secrets.OPSMIND_S3_BUCKET || 'opsmind-production-artifacts-p385p6' }}
-          INSTANCE_ID: ${{ secrets.OPSMIND_EC2_INSTANCE_ID || 'i-01427e3793c2f09a5' }}
-          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+        if: env.AWS_ACCESS_KEY_ID != ''
         run: |
+          set -euo pipefail
           echo "Uploading application archive to S3..."
-          aws s3 cp dist/opsmind-app.tar.gz s3://${S3_BUCKET}/deploy/opsmind-app.tar.gz
+          aws s3 cp dist/opsmind-app.tar.gz "s3://${S3_BUCKET}/deploy/opsmind-app.tar.gz"
+
+          # Built with python so the host needs no AWS CLI installed.
+          python - <<'PY' > /tmp/ssm-params.json
+          import json, os
+
+          bucket = os.environ["S3_BUCKET"]
+          region = os.environ["AWS_REGION"]
+          port = os.environ["APP_PORT"]
+          download = (
+              "import boto3; boto3.client('s3', region_name='%s')"
+              ".download_file('%s', 'deploy/opsmind-app.tar.gz', '/opt/opsmind.tar.gz')"
+          ) % (region, bucket)
+          commands = [
+              "set -e",
+              f"/opt/opsmind/.venv/bin/python -c \"{download}\"",
+              "tar -xzf /opt/opsmind.tar.gz -C /opt/opsmind",
+              "/opt/opsmind/.venv/bin/pip install --no-cache-dir -r /opt/opsmind/requirements.txt",
+              "systemctl restart opsmind opsmind-worker",
+              f"for i in $(seq 1 15); do curl -sf http://127.0.0.1:{port}/healthz && exit 0 || sleep 2; done; exit 1",
+          ]
+          print(json.dumps({"commands": commands}))
+          PY
 
           echo "Dispatching deployment command to EC2 instance via AWS SSM..."
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "/opt/opsmind/.venv/bin/python -c \"import boto3; boto3.client('\''s3'\'', region_name='\'''${AWS_REGION}'\'').download_file('\'''${S3_BUCKET}'\'', '\''deploy/opsmind-app.tar.gz'\'', '\''/opt/opsmind.tar.gz'\'')\"",
-              "tar -xzf /opt/opsmind.tar.gz -C /opt/opsmind",
-              "cd /opt/opsmind",
-              "/opt/opsmind/.venv/bin/pip install --no-cache-dir -r requirements.txt",
-              "systemctl restart opsmind opsmind-worker",
-              "for i in $(seq 1 15); do curl -s -f http://127.0.0.1:8000/healthz && exit 0 || sleep 2; done; exit 1"
-            ]' \
+            --parameters "file:///tmp/ssm-params.json" \
             --region "${AWS_REGION}" \
             --query "Command.CommandId" \
             --output text)
 
           echo "Waiting for SSM command ${COMMAND_ID} to complete..."
-          aws ssm wait command-executed \
+          if ! aws ssm wait command-executed \
             --command-id "${COMMAND_ID}" \
             --instance-id "${INSTANCE_ID}" \
-            --region "${AWS_REGION}"
-          echo "Deployment completed successfully via AWS SSM!"
+            --region "${AWS_REGION}"; then
+            echo "::error::SSM deployment command failed."
+            aws ssm get-command-invocation \
+              --command-id "${COMMAND_ID}" \
+              --instance-id "${INSTANCE_ID}" \
+              --region "${AWS_REGION}" \
+              --query "StandardErrorContent" --output text || true
+            exit 1
+          fi
+          echo "Deployment completed via AWS SSM."
 
-      - name: Deploy via SSH (Alternative fallback)
-        if: ${{ env.AWS_ACCESS_KEY_ID == '' && env.EC2_SSH_KEY != '' }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          EC2_HOST: ${{ secrets.EC2_HOST || '98.94.112.228' }}
+      - name: Deploy via SSH (fallback)
+        if: env.AWS_ACCESS_KEY_ID == '' && env.EC2_SSH_KEY != ''
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf '%s' "${EC2_SSH_KEY}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          scp -o StrictHostKeyChecking=no dist/opsmind-app.tar.gz ubuntu@${EC2_HOST}:/tmp/opsmind-app.tar.gz
-          ssh -o StrictHostKeyChecking=no ubuntu@${EC2_HOST} "
+          scp -o StrictHostKeyChecking=no dist/opsmind-app.tar.gz \
+            "ubuntu@${DEPLOY_HOST}:/tmp/opsmind-app.tar.gz"
+          ssh -o StrictHostKeyChecking=no "ubuntu@${DEPLOY_HOST}" "
+            set -e
             sudo tar -xzf /tmp/opsmind-app.tar.gz -C /opt/opsmind
-            cd /opt/opsmind
-            sudo /opt/opsmind/.venv/bin/pip install --no-cache-dir -r requirements.txt
+            sudo /opt/opsmind/.venv/bin/pip install --no-cache-dir -r /opt/opsmind/requirements.txt
             sudo systemctl restart opsmind opsmind-worker
-            sleep 4
-            curl -f http://localhost:8000/healthz
+            for i in \$(seq 1 15); do
+              curl -sf http://127.0.0.1:${APP_PORT}/healthz && exit 0 || sleep 2
+            done
+            exit 1
           "
-          echo "Deployment completed successfully via SSH!"
+          echo "Deployment completed via SSH."
 
+      # A deployment that leaves the service unhealthy is a failed deployment.
       - name: Verify Live Deployment Endpoint
         run: |
-          echo "Verifying live endpoint health..."
-          curl -f -m 15 http://98.94.112.228:8000/healthz || echo "Health check returned warning"
-          curl -f -m 15 http://98.94.112.228:8000/readyz || echo "Readiness check returned warning"
+          set -euo pipefail
+          for probe in healthz readyz; do
+            echo "Checking /${probe}..."
+            curl -fsS -m 15 "http://${DEPLOY_HOST}:${APP_PORT}/${probe}" > /dev/null
+          done
+          echo "Live deployment verified healthy."

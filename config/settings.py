@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     reports_dir: Path = Path("reports")
     artifacts_dir: Path = Path("artifacts")
 
+    # --- API authentication ---
+    api_key: str = Field(
+        default="",
+        description="When set, mutating endpoints require a matching X-API-Key header.",
+    )
+
     # --- LLM ---
     llm_provider: LLMProvider = LLMProvider.GEMINI
     gemini_api_key: str = ""
@@ -69,6 +75,10 @@ class Settings(BaseSettings):
     slack_bot_token: str = ""
     slack_app_token: str = ""
     slack_default_channel: str = "#incidents"
+    dashboard_base_url: str = Field(
+        default="http://localhost:8000",
+        description="Public dashboard URL used in links sent to Slack.",
+    )
 
     # --- Storage (Local) ---
     database_url: str = "sqlite:///./opsmind.db"
@@ -78,16 +88,102 @@ class Settings(BaseSettings):
 
     # --- GitHub ---
     github_webhook_secret: str = ""
+    github_api_base_url: str = "https://api.github.com"
+    github_polling_enabled: bool = True
+    github_poll_interval_seconds: int = Field(
+        default=300,
+        ge=30,
+        description="How often the poller checks a repository for new commits and runs.",
+    )
+    github_request_timeout_seconds: float = Field(default=15.0, gt=0)
+    github_rate_limit_floor: int = Field(
+        default=100,
+        ge=0,
+        description="Skip polling a repository when fewer API calls than this remain.",
+    )
+    github_log_tail_lines: int = Field(
+        default=200,
+        ge=10,
+        le=5000,
+        description="Lines kept from the end of a failed CI job log for analysis.",
+    )
+    github_max_repos_per_cycle: int = Field(default=25, ge=1)
+    github_commit_lookback_hours: int = Field(default=24, ge=1)
+
+    # --- Local secret storage ---
+    local_secrets_path: Path = Path("data/secrets.json")
+
+    # --- Copilot ---
+    copilot_max_tool_iterations: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="Maximum tool-calling rounds before the copilot must answer.",
+    )
+    copilot_max_history_turns: int = Field(
+        default=6,
+        ge=1,
+        le=50,
+        description="Conversation turns retained per copilot session.",
+    )
+    copilot_session_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description="How long an idle copilot session is kept in memory.",
+    )
+
+    # --- Metric monitors ---
+    monitor_zscore_threshold: float = Field(
+        default=3.0,
+        gt=0,
+        description="Default z-score beyond which an anomaly-mode monitor breaches.",
+    )
+    monitor_iqr_multiplier: float = Field(
+        default=1.5,
+        gt=0,
+        description="Default IQR multiplier for anomaly-mode monitors.",
+    )
+    monitor_default_window_seconds: int = Field(
+        default=900,
+        ge=60,
+        description="Default evaluation window for a new monitor.",
+    )
+    monitor_default_min_samples: int = Field(
+        default=5,
+        ge=1,
+        description="Default minimum samples before a monitor can evaluate.",
+    )
+
+    # --- Remediation ---
+    remediation_execution_enabled: bool = Field(
+        default=False,
+        description=(
+            "Execute approved runbooks for real. Off by default so an approval "
+            "produces a clearly-labelled simulation until an operator opts in."
+        ),
+    )
+
+    # --- Incident worker ---
+    worker_poll_interval_seconds: float = Field(
+        default=0.5,
+        gt=0,
+        description="Delay between incident queue polls in the background worker.",
+    )
 
     # --- Synthetic probes ---
     synthetic_probes_enabled: bool = True
     synthetic_probe_tripwire: int = Field(default=3, ge=1, le=20)
     synthetic_probe_timeout_seconds: float = 5.0
 
-    @field_validator("reports_dir", "artifacts_dir")
+    @field_validator("reports_dir", "artifacts_dir", "local_secrets_path")
     @classmethod
     def _absolute_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value
+
+    @property
+    def is_aws(self) -> bool:
+        """True when the application should use AWS-backed providers."""
+        return self.deployment_mode is DeploymentMode.AWS
 
     @property
     def model_name(self) -> str:
@@ -102,10 +198,40 @@ class Settings(BaseSettings):
     def slack_enabled(self) -> bool:
         return bool(self.slack_bot_token and self.slack_app_token)
 
+    @property
+    def auth_required(self) -> bool:
+        """True when an API key is configured and mutations must be authenticated."""
+        return bool(self.api_key)
+
     def missing_llm_credentials(self) -> str | None:
-        """Return a human-readable reason the LLM is unusable, or ``None``."""
-        if self.llm_provider is LLMProvider.GEMINI and not self.gemini_api_key:
-            return "LLM_PROVIDER=gemini but GEMINI_API_KEY is empty"
+        """Return a human-readable reason the LLM is unusable, or ``None``.
+
+        Each provider is validated against what it actually needs, so ``/readyz``
+        cannot report a provider as configured when it would fail on first call.
+        """
+        if self.llm_provider is LLMProvider.GEMINI:
+            if not self.gemini_api_key:
+                return "LLM_PROVIDER=gemini but GEMINI_API_KEY is empty"
+            return None
+
+        if self.llm_provider is LLMProvider.BEDROCK:
+            if not self.bedrock_model_id:
+                return "LLM_PROVIDER=bedrock but BEDROCK_MODEL_ID is empty"
+            if not self.aws_region:
+                return "LLM_PROVIDER=bedrock but AWS_REGION is empty"
+            try:
+                import boto3
+            except ImportError:
+                return "LLM_PROVIDER=bedrock but boto3 is not installed"
+            # Resolves from env, shared config, or instance profile without a network call.
+            if boto3.Session().get_credentials() is None:
+                return "LLM_PROVIDER=bedrock but no AWS credentials could be resolved"
+            return None
+
+        if not self.ollama_base_url:
+            return "LLM_PROVIDER=ollama but OLLAMA_BASE_URL is empty"
+        if not self.ollama_model:
+            return "LLM_PROVIDER=ollama but OLLAMA_MODEL is empty"
         return None
 
 
