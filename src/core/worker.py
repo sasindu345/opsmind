@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 
 from config.settings import Settings, get_settings
 from src.api.schemas import LogBatch
-from src.core.anomaly_detector import AnomalyRecord
+from src.core.anomaly_detector import AnomalyMethod, AnomalyRecord
 from src.core.correlator import DeploymentRecord
 from src.core.pipeline import analyze_logs
 from src.llm.schemas import AnalysisResult
@@ -250,6 +250,91 @@ def get_local_queue() -> LocalIncidentQueue:
     return _GLOBAL_LOCAL_QUEUE
 
 
+def _coerce_timestamp(raw: object, fallback: datetime) -> datetime:
+    if isinstance(raw, datetime):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError:
+            return fallback
+    return fallback
+
+
+def _rebuild_anomalies(raw: object, fallback_time: datetime) -> list[AnomalyRecord]:
+    """Rebuild anomaly records carried on a queue payload.
+
+    Producers serialise anomalies as plain dictionaries, so the worker has to
+    restore them before the correlator can weigh them as evidence.
+    """
+    if not isinstance(raw, list):
+        return []
+
+    records: list[AnomalyRecord] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            method = AnomalyMethod(str(item.get("method", AnomalyMethod.ZSCORE)))
+        except ValueError:
+            method = AnomalyMethod.ZSCORE
+        try:
+            records.append(
+                AnomalyRecord(
+                    metric_name=str(item["metric_name"]),
+                    timestamp=_coerce_timestamp(item.get("timestamp"), fallback_time),
+                    value=float(item["value"]),
+                    baseline_value=float(item.get("baseline_value", 0.0)),
+                    threshold_value=float(item.get("threshold_value", 0.0)),
+                    score=float(item.get("score", 0.0)),
+                    method=method,
+                    direction=str(item.get("direction", "spike")),
+                    is_anomaly=bool(item.get("is_anomaly", True)),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            logger.warning("discarding malformed anomaly payload entry: %s", item)
+    return records
+
+
+def _rebuild_deployments(
+    raw: object,
+    default_service: str,
+    default_environment: str,
+    fallback_time: datetime,
+) -> list[DeploymentRecord]:
+    """Rebuild deployment records carried on a queue payload.
+
+    Without this the correlator never sees the commit that a webhook reported,
+    so it cannot attribute an incident to a deployment.
+    """
+    if not isinstance(raw, list):
+        return []
+
+    records: list[DeploymentRecord] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        commit_sha = str(item.get("commit_sha", "")).strip()
+        if not commit_sha:
+            continue
+        changed_files = item.get("changed_files")
+        records.append(
+            DeploymentRecord(
+                commit_sha=commit_sha,
+                author=str(item.get("author", "unknown")),
+                service=str(item.get("service") or default_service),
+                environment=str(item.get("environment") or default_environment),
+                timestamp=_coerce_timestamp(item.get("timestamp"), fallback_time),
+                message=str(item.get("message", "")),
+                changed_files=[str(f) for f in changed_files]
+                if isinstance(changed_files, list)
+                else [],
+            )
+        )
+    return records
+
+
 class IncidentWorker:
     """Processes enqueued incidents asynchronously through the triage pipeline."""
 
@@ -310,17 +395,13 @@ class IncidentWorker:
             generate_report=bool(message.payload.get("generate_report", True)),
         )
 
-        anomalies_data = message.payload.get("anomalies")
-        anomalies: list[AnomalyRecord] = []
-        if isinstance(anomalies_data, list):
-            # Reconstruct anomaly records if provided
-            pass
-
-        deployments_data = message.payload.get("deployments")
-        deployments: list[DeploymentRecord] = []
-        if isinstance(deployments_data, list):
-            # Reconstruct deployment records if provided
-            pass
+        anomalies = _rebuild_anomalies(message.payload.get("anomalies"), message.created_at)
+        deployments = _rebuild_deployments(
+            message.payload.get("deployments"),
+            message.service,
+            message.environment,
+            message.created_at,
+        )
 
         # 3. Execute Triage Pipeline
         try:

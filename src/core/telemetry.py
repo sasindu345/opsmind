@@ -45,6 +45,15 @@ class UnifiedIncidentView:
     probe_summary: str | None = None
 
 
+def git_signal_id(owner: str, repository: str, commit_sha: str) -> str:
+    """Deterministic signal id for a commit.
+
+    Shared by the GitHub webhook and the repository poller so the same commit
+    arriving through both paths is stored once rather than twice.
+    """
+    return f"git-{owner}__{repository}-{commit_sha}"
+
+
 def correlate_signals(
     signals: list[TelemetrySignal],
     *,

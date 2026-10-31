@@ -207,12 +207,15 @@ async def github_webhook(
         try:
             from datetime import UTC, datetime
 
-            from src.core.telemetry import TelemetrySignal
+            from src.core.telemetry import TelemetrySignal, git_signal_id
             from src.infrastructure.factory import get_telemetry_store
 
+            owner = body.get("repository", {}).get("owner", {}).get("login", "unknown")
             await get_telemetry_store(settings).save_signal(
                 TelemetrySignal(
-                    signal_id=message_id,
+                    # Deterministic so webhook redelivery, and the repository
+                    # poller, cannot create duplicate rows for one commit.
+                    signal_id=git_signal_id(owner, repository, commit_sha),
                     source="git",
                     app_id=service,
                     service=service,

@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     reports_dir: Path = Path("reports")
     artifacts_dir: Path = Path("artifacts")
 
+    # --- API authentication ---
+    api_key: str = Field(
+        default="",
+        description="When set, mutating endpoints require a matching X-API-Key header.",
+    )
+
     # --- LLM ---
     llm_provider: LLMProvider = LLMProvider.GEMINI
     gemini_api_key: str = ""
@@ -79,6 +85,22 @@ class Settings(BaseSettings):
     # --- GitHub ---
     github_webhook_secret: str = ""
 
+    # --- Remediation ---
+    remediation_execution_enabled: bool = Field(
+        default=False,
+        description=(
+            "Execute approved runbooks for real. Off by default so an approval "
+            "produces a clearly-labelled simulation until an operator opts in."
+        ),
+    )
+
+    # --- Incident worker ---
+    worker_poll_interval_seconds: float = Field(
+        default=0.5,
+        gt=0,
+        description="Delay between incident queue polls in the background worker.",
+    )
+
     # --- Synthetic probes ---
     synthetic_probes_enabled: bool = True
     synthetic_probe_tripwire: int = Field(default=3, ge=1, le=20)
@@ -88,6 +110,11 @@ class Settings(BaseSettings):
     @classmethod
     def _absolute_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value
+
+    @property
+    def is_aws(self) -> bool:
+        """True when the application should use AWS-backed providers."""
+        return self.deployment_mode is DeploymentMode.AWS
 
     @property
     def model_name(self) -> str:
@@ -102,10 +129,40 @@ class Settings(BaseSettings):
     def slack_enabled(self) -> bool:
         return bool(self.slack_bot_token and self.slack_app_token)
 
+    @property
+    def auth_required(self) -> bool:
+        """True when an API key is configured and mutations must be authenticated."""
+        return bool(self.api_key)
+
     def missing_llm_credentials(self) -> str | None:
-        """Return a human-readable reason the LLM is unusable, or ``None``."""
-        if self.llm_provider is LLMProvider.GEMINI and not self.gemini_api_key:
-            return "LLM_PROVIDER=gemini but GEMINI_API_KEY is empty"
+        """Return a human-readable reason the LLM is unusable, or ``None``.
+
+        Each provider is validated against what it actually needs, so ``/readyz``
+        cannot report a provider as configured when it would fail on first call.
+        """
+        if self.llm_provider is LLMProvider.GEMINI:
+            if not self.gemini_api_key:
+                return "LLM_PROVIDER=gemini but GEMINI_API_KEY is empty"
+            return None
+
+        if self.llm_provider is LLMProvider.BEDROCK:
+            if not self.bedrock_model_id:
+                return "LLM_PROVIDER=bedrock but BEDROCK_MODEL_ID is empty"
+            if not self.aws_region:
+                return "LLM_PROVIDER=bedrock but AWS_REGION is empty"
+            try:
+                import boto3
+            except ImportError:
+                return "LLM_PROVIDER=bedrock but boto3 is not installed"
+            # Resolves from env, shared config, or instance profile without a network call.
+            if boto3.Session().get_credentials() is None:
+                return "LLM_PROVIDER=bedrock but no AWS credentials could be resolved"
+            return None
+
+        if not self.ollama_base_url:
+            return "LLM_PROVIDER=ollama but OLLAMA_BASE_URL is empty"
+        if not self.ollama_model:
+            return "LLM_PROVIDER=ollama but OLLAMA_MODEL is empty"
         return None
 
 

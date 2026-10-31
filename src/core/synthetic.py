@@ -200,7 +200,7 @@ async def _open_probe_incident(
         else f"{app.name} is unavailable"
     )
     deduped = list(dict.fromkeys(evidence))
-    result = AnalysisResult(
+    baseline = AnalysisResult(
         incident_id=incident_id,
         service=app.app_id,
         environment=app.environment,
@@ -244,9 +244,88 @@ async def _open_probe_incident(
         app_id=app.app_id,
         deployment_sha=unified.deployment_sha,
     )
+    result = await _enrich_with_llm(
+        baseline,
+        app=app,
+        snapshot=snapshot,
+        detail=detail,
+        related_signals=[probe_signal, *(related_signals or [])],
+    )
     await incident_repo.save_incident(result)
     logger.warning("opened synthetic incident %s for %s", incident_id, app.app_id)
     return incident_id, True
+
+
+async def _enrich_with_llm(
+    baseline: AnalysisResult,
+    *,
+    app: ApplicationRecord,
+    snapshot: HealthProbeSnapshot,
+    detail: str,
+    related_signals: list[TelemetrySignal],
+) -> AnalysisResult:
+    """Upgrade a probe outage with LLM root-cause analysis, keeping the baseline on failure.
+
+    The deterministic baseline already describes the outage accurately, so it is
+    preferred over the pipeline's generic heuristic whenever the LLM is unusable.
+    """
+    # Imported lazily: the probe engine is constructed at startup, while the
+    # pipeline pulls in Drain3 and the LLM stack.
+    from config.settings import get_settings
+    from src.api.schemas import LogBatch
+    from src.core.pipeline import analyze_logs
+
+    reason = get_settings().missing_llm_credentials()
+    if reason is not None:
+        logger.info("skipping LLM enrichment for %s: %s", app.app_id, reason)
+        return baseline
+
+    log_lines = [
+        f"Synthetic health probe for {app.name} ({app.health_url}) failed: {detail}",
+        f"HTTP status {snapshot.http_status} after {snapshot.latency_ms:.0f}ms",
+    ]
+    log_lines.extend(signal.raw_message for signal in related_signals if signal.raw_message)
+
+    try:
+        enriched = await analyze_logs(
+            LogBatch(
+                service=app.app_id,
+                environment=app.environment,
+                logs=log_lines,
+                occurred_at=snapshot.timestamp,
+                context=(
+                    f"Application '{app.name}' owned by {app.owner_team} failed its synthetic "
+                    f"health check. Diagnose the probable cause and recommend a safe fix."
+                ),
+                generate_report=False,
+            ),
+            incident_id=baseline.incident_id,
+            signals=related_signals,
+            persist_incident=False,
+        )
+    except Exception:
+        logger.exception("LLM enrichment failed for %s, keeping deterministic analysis", app.app_id)
+        return baseline
+
+    if enriched.degraded:
+        return baseline
+
+    analysis = enriched.analysis
+    baseline.analysis.title = analysis.title or baseline.analysis.title
+    baseline.analysis.summary = analysis.summary or baseline.analysis.summary
+    baseline.analysis.probable_cause = analysis.probable_cause or baseline.analysis.probable_cause
+    baseline.analysis.confidence = analysis.confidence
+    if analysis.suggested_fixes:
+        baseline.analysis.suggested_fixes = analysis.suggested_fixes
+    # Severity stays CRITICAL: the application is confirmed unreachable.
+    baseline.analysis.evidence = list(
+        dict.fromkeys([*baseline.observed_evidence, *analysis.evidence])
+    )
+    baseline.clusters = enriched.clusters
+    baseline.inferred_correlation = enriched.inferred_correlation
+    baseline.model = enriched.model
+    baseline.degraded = False
+    return baseline
 
 
 async def execute_probe(

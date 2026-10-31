@@ -173,6 +173,70 @@ async def test_worker_skips_apps_that_were_probed_recently(repos):
     assert calls["count"] == 0
 
 
+@pytest.mark.asyncio
+async def test_probe_outage_gets_llm_root_cause_and_fix(repos, monkeypatch, tmp_path):
+    """A probe outage must carry AI analysis, not only the deterministic text.
+
+    The tripwire previously wrote the incident directly and never called the
+    LLM, so detected outages had no root cause or suggested fix.
+    """
+    import json
+
+    from config.settings import get_settings
+    from tests.test_llm_schemas import VALID_ANALYSIS, FakeCompletion
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "src.llm.client.litellm.acompletion", FakeCompletion(json.dumps(VALID_ANALYSIS))
+    )
+    get_settings.cache_clear()
+    monkeypatch.setattr(get_settings(), "reports_dir", tmp_path)
+
+    app_repo, incident_repo = repos
+    record = await _save_app(app_repo, failures=2, status="degraded")
+    outcome = await execute_probe(
+        record,
+        app_repo,
+        incident_repo,
+        validator=_PublicValidator(),
+        fetch=_status_fetch(503),
+    )
+
+    assert outcome.incident_opened is True
+    incident = await incident_repo.get_incident(probe_incident_id("checkout-api"))
+    assert incident is not None
+    assert incident.degraded is False
+    assert incident.model != "synthetic-probe"
+    assert incident.probable_cause == VALID_ANALYSIS["probable_cause"]
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_probe_outage_keeps_deterministic_analysis_without_an_llm(repos, monkeypatch):
+    """With no LLM key the outage still opens, using the deterministic analysis."""
+    from config.settings import get_settings
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    app_repo, incident_repo = repos
+    record = await _save_app(app_repo, failures=2, status="degraded")
+    outcome = await execute_probe(
+        record,
+        app_repo,
+        incident_repo,
+        validator=_PublicValidator(),
+        fetch=_status_fetch(500),
+    )
+
+    assert outcome.incident_opened is True
+    incident = await incident_repo.get_incident(probe_incident_id("checkout-api"))
+    assert incident is not None
+    assert incident.model == "synthetic-probe"
+    assert "unavailable" in incident.title.lower()
+    get_settings.cache_clear()
+
+
 def test_probe_api_rejects_metadata_and_localhost():
     with TestClient(app) as client:
         for app_id, health_url in (

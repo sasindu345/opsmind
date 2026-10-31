@@ -38,11 +38,16 @@ async def analyze_logs(
     rag_context: str | None = None,
     persist_incident: bool = True,
     signals: list | None = None,
+    incident_id: str | None = None,
 ) -> AnalysisResult:
-    """Run one batch of logs + telemetry through the full multi-source triage pipeline."""
+    """Run one batch of logs + telemetry through the full multi-source triage pipeline.
+
+    ``incident_id`` lets a caller supply a stable identifier so repeated signals
+    for the same underlying failure update one incident instead of creating many.
+    """
     settings = settings or get_settings()
     client = client or LLMClient(settings)
-    incident_id = uuid.uuid4().hex
+    incident_id = incident_id or uuid.uuid4().hex
 
     # 1. Drain3 Log Clustering
     clusters = DrainFilter().cluster(batch.logs)
