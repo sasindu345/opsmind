@@ -109,6 +109,25 @@ class Settings(BaseSettings):
     # --- Local secret storage ---
     local_secrets_path: Path = Path("data/secrets.json")
 
+    # --- Copilot ---
+    copilot_max_tool_iterations: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="Maximum tool-calling rounds before the copilot must answer.",
+    )
+    copilot_max_history_turns: int = Field(
+        default=6,
+        ge=1,
+        le=50,
+        description="Conversation turns retained per copilot session.",
+    )
+    copilot_session_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description="How long an idle copilot session is kept in memory.",
+    )
+
     # --- Metric monitors ---
     monitor_zscore_threshold: float = Field(
         default=3.0,

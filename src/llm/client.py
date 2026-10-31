@@ -95,6 +95,54 @@ class LLMClient:
         response = await litellm.acompletion(messages=messages, **self._completion_kwargs())
         return response.choices[0].message.content or ""
 
+    async def chat(
+        self,
+        messages: list[dict[str, object]],
+        tools: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        """One conversational turn, optionally offering tools to the model.
+
+        Returns the assistant message as a plain dict, which may carry
+        ``tool_calls``. Shares this class's rate limiter and provider kwargs so
+        the copilot does not duplicate them.
+        """
+        if reason := self.settings.missing_llm_credentials():
+            raise LLMError(reason)
+
+        kwargs = self._completion_kwargs()
+        # Tool calling and forced JSON output are mutually exclusive: the model
+        # must be free to answer in prose once it has its evidence.
+        kwargs.pop("response_format", None)
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        await self._limiter.acquire()
+        try:
+            response = await litellm.acompletion(messages=messages, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - provider errors vary wildly
+            raise LLMError(f"chat completion failed: {exc}") from exc
+
+        message = response.choices[0].message
+        payload: dict[str, object] = {
+            "role": "assistant",
+            "content": getattr(message, "content", None) or "",
+        }
+        tool_calls = getattr(message, "tool_calls", None)
+        if tool_calls:
+            payload["tool_calls"] = [
+                {
+                    "id": getattr(call, "id", "") or "",
+                    "type": "function",
+                    "function": {
+                        "name": getattr(call.function, "name", ""),
+                        "arguments": getattr(call.function, "arguments", "") or "{}",
+                    },
+                }
+                for call in tool_calls
+            ]
+        return payload
+
     async def analyze(
         self,
         user_prompt: str,

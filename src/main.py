@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config.settings import PROJECT_ROOT, get_settings
 from src.api.routes_applications import router as applications_router
+from src.api.routes_copilot import router as copilot_router
 from src.api.routes_incidents import router as incidents_router
 from src.api.routes_logs import router as logs_router
 from src.api.routes_metrics import router as metrics_router
@@ -139,6 +140,7 @@ app.include_router(remediations_router)
 app.include_router(monitors_router)
 app.include_router(monitor_options_router)
 app.include_router(repositories_router)
+app.include_router(copilot_router)
 
 
 @app.get("/api/v1/session", tags=["system"])
