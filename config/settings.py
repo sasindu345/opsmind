@@ -84,6 +84,30 @@ class Settings(BaseSettings):
 
     # --- GitHub ---
     github_webhook_secret: str = ""
+    github_api_base_url: str = "https://api.github.com"
+    github_polling_enabled: bool = True
+    github_poll_interval_seconds: int = Field(
+        default=300,
+        ge=30,
+        description="How often the poller checks a repository for new commits and runs.",
+    )
+    github_request_timeout_seconds: float = Field(default=15.0, gt=0)
+    github_rate_limit_floor: int = Field(
+        default=100,
+        ge=0,
+        description="Skip polling a repository when fewer API calls than this remain.",
+    )
+    github_log_tail_lines: int = Field(
+        default=200,
+        ge=10,
+        le=5000,
+        description="Lines kept from the end of a failed CI job log for analysis.",
+    )
+    github_max_repos_per_cycle: int = Field(default=25, ge=1)
+    github_commit_lookback_hours: int = Field(default=24, ge=1)
+
+    # --- Local secret storage ---
+    local_secrets_path: Path = Path("data/secrets.json")
 
     # --- Metric monitors ---
     monitor_zscore_threshold: float = Field(
@@ -128,7 +152,7 @@ class Settings(BaseSettings):
     synthetic_probe_tripwire: int = Field(default=3, ge=1, le=20)
     synthetic_probe_timeout_seconds: float = 5.0
 
-    @field_validator("reports_dir", "artifacts_dir")
+    @field_validator("reports_dir", "artifacts_dir", "local_secrets_path")
     @classmethod
     def _absolute_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value

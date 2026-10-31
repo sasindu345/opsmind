@@ -24,6 +24,7 @@ from src.api.schemas import LogBatch
 from src.core.anomaly_detector import AnomalyMethod, AnomalyRecord
 from src.core.correlator import DeploymentRecord
 from src.core.pipeline import analyze_logs
+from src.llm.prompts import CI_SYSTEM_PROMPT
 from src.llm.schemas import AnalysisResult
 
 logger = logging.getLogger("opsmind.worker")
@@ -403,6 +404,13 @@ class IncidentWorker:
             message.created_at,
         )
 
+        # CI failures are fixed in the repository, not in production, so they
+        # get a build-engineer brief rather than the SRE one, and a stable id
+        # derived from the run so a redelivered run updates one incident.
+        is_ci_failure = message.event_type == "github_actions"
+        system_prompt = CI_SYSTEM_PROMPT if is_ci_failure else None
+        incident_id = f"ci-{message.deduplication_id}" if is_ci_failure else None
+
         # 3. Execute Triage Pipeline
         try:
             result = await analyze_logs(
@@ -410,6 +418,8 @@ class IncidentWorker:
                 settings=self.settings,
                 anomalies=anomalies,
                 deployments=deployments,
+                incident_id=incident_id,
+                system_prompt=system_prompt,
             )
             self.processed_count += 1
             logger.info(

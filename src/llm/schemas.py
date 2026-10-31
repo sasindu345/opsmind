@@ -76,6 +76,10 @@ class RootCauseAnalysis(BaseModel):
         description="Log templates, metrics or git facts supporting the conclusion.",
     )
     suggested_fixes: list[SuggestedFix] = Field(default_factory=list)
+    affected_files: list[str] = Field(
+        default_factory=list,
+        description="Source files implicated, when the failure points at specific code.",
+    )
 
 
 class LogClusterView(BaseModel):

@@ -15,6 +15,7 @@ from src.infrastructure.interfaces import (
     ArtifactStorage,
     EventPublisher,
     IncidentRepository,
+    RepositoryLinkRepository,
     SecretManager,
 )
 from src.infrastructure.local.events import LocalEventPublisher
@@ -68,6 +69,22 @@ def get_telemetry_store(settings: Settings | None = None):
     from src.core.telemetry import SQLiteTelemetryStore
 
     return SQLiteTelemetryStore(SQLiteApplicationRepository(settings=settings).db_path)
+
+
+def get_repository_link_repository(
+    settings: Settings | None = None,
+) -> RepositoryLinkRepository:
+    """Return the linked-GitHub-repository store for the active deployment mode.
+
+    Both implementations live alongside the application repository, which
+    already owns the same table family.
+    """
+    settings = settings or get_settings()
+    if settings.deployment_mode == DeploymentMode.AWS:
+        from src.infrastructure.aws.repository import DynamoDBApplicationRepository
+
+        return DynamoDBApplicationRepository(settings=settings)
+    return SQLiteApplicationRepository(settings=settings)
 
 
 def get_secret_manager(settings: Settings | None = None) -> SecretManager:

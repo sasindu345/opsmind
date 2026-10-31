@@ -22,6 +22,7 @@ from src.api.routes_metrics import router as metrics_router
 from src.api.routes_monitors import options_router as monitor_options_router
 from src.api.routes_monitors import router as monitors_router
 from src.api.routes_remediations import router as remediations_router
+from src.api.routes_repositories import router as repositories_router
 from src.api.routes_webhooks import router as webhooks_router
 
 settings = get_settings()
@@ -73,6 +74,24 @@ async def lifespan(app: FastAPI):
             stoppables.append(probe_worker)
             app.state.synthetic_worker = probe_worker
 
+        if settings.github_polling_enabled:
+            from src.core.github_poller import GitHubRepoPoller
+            from src.infrastructure.factory import (
+                get_repository_link_repository,
+                get_secret_manager,
+                get_telemetry_store,
+            )
+
+            github_poller = GitHubRepoPoller(
+                get_repository_link_repository(settings),
+                get_telemetry_store(settings),
+                get_secret_manager(settings),
+                settings=settings,
+            )
+            background_tasks.append(asyncio.create_task(github_poller.run()))
+            stoppables.append(github_poller)
+            app.state.github_poller = github_poller
+
         # Without this the queue that webhooks and /analyze/logs/async write to
         # is never drained, so no incident is ever produced from an ingested event.
         from src.core.worker import IncidentWorker
@@ -119,6 +138,7 @@ app.include_router(metrics_router)
 app.include_router(remediations_router)
 app.include_router(monitors_router)
 app.include_router(monitor_options_router)
+app.include_router(repositories_router)
 
 
 @app.get("/api/v1/session", tags=["system"])

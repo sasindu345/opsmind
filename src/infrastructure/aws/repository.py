@@ -16,6 +16,7 @@ from src.infrastructure.interfaces import (
     HealthProbeSnapshot,
     IncidentRecord,
     MetricMonitorRecord,
+    RepositoryRecord,
 )
 from src.llm.schemas import AnalysisResult, IncidentStatus
 
@@ -187,6 +188,7 @@ class DynamoDBApplicationRepository:
         self._table = None
         self._probes_table = None
         self._monitors_table = None
+        self._repositories_table = None
 
     def _get_table(self):
         if self._table is None:
@@ -282,6 +284,130 @@ class DynamoDBApplicationRepository:
         table = self._get_table()
         await asyncio.to_thread(table.delete_item, Key={"app_id": app_id})
         return True
+
+    def _repositories_table_name(self) -> str:
+        return f"{self.table_name}-repositories"
+
+    def _get_repositories_table(self):
+        if getattr(self, "_repositories_table", None) is None:
+            import boto3
+
+            self._repositories_table = boto3.resource("dynamodb", region_name=self.region).Table(
+                self._repositories_table_name()
+            )
+        return self._repositories_table
+
+    async def save_repository(self, repo: RepositoryRecord) -> str:
+        table = self._get_repositories_table()
+        item: dict[str, Any] = {
+            "repo_id": repo.repo_id,
+            "app_id": repo.app_id,
+            "owner": repo.owner,
+            "name": repo.name,
+            "default_branch": repo.default_branch,
+            "token_secret_ref": repo.token_secret_ref,
+            "poll_interval_seconds": repo.poll_interval_seconds,
+            "commits_enabled": repo.commits_enabled,
+            "actions_enabled": repo.actions_enabled,
+            "created_at": repo.created_at.isoformat(),
+            "updated_at": repo.updated_at.isoformat(),
+        }
+        optional = {
+            "last_commit_sha": repo.last_commit_sha,
+            "commits_etag": repo.commits_etag,
+            "last_workflow_run_id": repo.last_workflow_run_id,
+            "runs_etag": repo.runs_etag,
+            "rate_limit_remaining": repo.rate_limit_remaining,
+            "last_error": repo.last_error,
+        }
+        item.update({key: value for key, value in optional.items() if value is not None})
+        if repo.last_polled_at:
+            item["last_polled_at"] = repo.last_polled_at.isoformat()
+
+        await asyncio.to_thread(table.put_item, Item=item)
+        return repo.repo_id
+
+    async def get_repository(self, repo_id: str) -> RepositoryRecord | None:
+        table = self._get_repositories_table()
+        response = await asyncio.to_thread(table.get_item, Key={"repo_id": repo_id})
+        item = response.get("Item")
+        return self._item_to_repository(item) if item else None
+
+    async def list_repositories(self, app_id: str | None = None) -> list[RepositoryRecord]:
+        table = self._get_repositories_table()
+        scan_kwargs: dict[str, Any] = {}
+        if app_id:
+            from boto3.dynamodb.conditions import Attr
+
+            scan_kwargs["FilterExpression"] = Attr("app_id").eq(app_id)
+        response = await asyncio.to_thread(table.scan, **scan_kwargs)
+        repos = [self._item_to_repository(item) for item in response.get("Items", [])]
+        repos.sort(key=lambda r: r.created_at)
+        return repos
+
+    async def update_repository(
+        self,
+        repo_id: str,
+        updates: dict[str, Any],
+    ) -> RepositoryRecord | None:
+        current = await self.get_repository(repo_id)
+        if not current:
+            return None
+
+        allowed = {
+            "app_id",
+            "default_branch",
+            "token_secret_ref",
+            "poll_interval_seconds",
+            "commits_enabled",
+            "actions_enabled",
+            "last_commit_sha",
+            "commits_etag",
+            "last_workflow_run_id",
+            "runs_etag",
+            "rate_limit_remaining",
+            "last_polled_at",
+            "last_error",
+        }
+        filtered = {k: v for k, v in updates.items() if k in allowed}
+        if not filtered:
+            return current
+
+        for key, value in filtered.items():
+            setattr(current, key, value)
+        current.updated_at = datetime.now(UTC)
+        await self.save_repository(current)
+        return current
+
+    async def delete_repository(self, repo_id: str) -> bool:
+        table = self._get_repositories_table()
+        await asyncio.to_thread(table.delete_item, Key={"repo_id": repo_id})
+        return True
+
+    def _item_to_repository(self, item: dict[str, Any]) -> RepositoryRecord:
+        polled = item.get("last_polled_at")
+        run_id = item.get("last_workflow_run_id")
+        remaining = item.get("rate_limit_remaining")
+        return RepositoryRecord(
+            repo_id=item["repo_id"],
+            app_id=item["app_id"],
+            owner=item["owner"],
+            name=item["name"],
+            default_branch=item.get("default_branch", "main"),
+            token_secret_ref=item.get("token_secret_ref", ""),
+            poll_interval_seconds=int(item.get("poll_interval_seconds", 300)),
+            commits_enabled=bool(item.get("commits_enabled", True)),
+            actions_enabled=bool(item.get("actions_enabled", True)),
+            last_commit_sha=item.get("last_commit_sha"),
+            commits_etag=item.get("commits_etag"),
+            last_workflow_run_id=int(run_id) if run_id is not None else None,
+            runs_etag=item.get("runs_etag"),
+            rate_limit_remaining=int(remaining) if remaining is not None else None,
+            last_polled_at=datetime.fromisoformat(polled) if polled else None,
+            last_error=item.get("last_error"),
+            created_at=datetime.fromisoformat(item["created_at"]),
+            updated_at=datetime.fromisoformat(item["updated_at"]),
+        )
 
     def _monitors_table_name(self) -> str:
         return f"{self.table_name}-monitors"

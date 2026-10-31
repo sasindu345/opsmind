@@ -39,11 +39,13 @@ async def analyze_logs(
     persist_incident: bool = True,
     signals: list | None = None,
     incident_id: str | None = None,
+    system_prompt: str | None = None,
 ) -> AnalysisResult:
     """Run one batch of logs + telemetry through the full multi-source triage pipeline.
 
     ``incident_id`` lets a caller supply a stable identifier so repeated signals
     for the same underlying failure update one incident instead of creating many.
+    ``system_prompt`` swaps in a domain-specific brief, such as CI-failure triage.
     """
     settings = settings or get_settings()
     client = client or LLMClient(settings)
@@ -104,7 +106,7 @@ async def analyze_logs(
     # 4. LLM Analysis with Fallback
     degraded = False
     try:
-        analysis = await client.analyze(prompt)
+        analysis = await client.analyze(prompt, system_prompt=system_prompt)
     except LLMError as exc:
         logger.error("LLM analysis failed (%s) — falling back to heuristics", exc)
         analysis = heuristic_analysis(cluster_dicts, batch.service)

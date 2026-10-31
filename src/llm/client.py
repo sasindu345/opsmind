@@ -95,18 +95,25 @@ class LLMClient:
         response = await litellm.acompletion(messages=messages, **self._completion_kwargs())
         return response.choices[0].message.content or ""
 
-    async def analyze(self, user_prompt: str) -> RootCauseAnalysis:
+    async def analyze(
+        self,
+        user_prompt: str,
+        system_prompt: str | None = None,
+    ) -> RootCauseAnalysis:
         """Run the analysis, repairing one malformed response before giving up.
 
         Free-tier models regularly emit fenced or truncated JSON, so a single
         schema-feedback retry is the difference between a usable endpoint and a
         flaky one.
+
+        ``system_prompt`` lets a caller swap in a domain-specific brief, such as
+        CI-failure triage, while reusing this rate limiting and repair logic.
         """
         if reason := self.settings.missing_llm_credentials():
             raise LLMError(reason)
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ]
 
