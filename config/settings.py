@@ -85,6 +85,28 @@ class Settings(BaseSettings):
     # --- GitHub ---
     github_webhook_secret: str = ""
 
+    # --- Metric monitors ---
+    monitor_zscore_threshold: float = Field(
+        default=3.0,
+        gt=0,
+        description="Default z-score beyond which an anomaly-mode monitor breaches.",
+    )
+    monitor_iqr_multiplier: float = Field(
+        default=1.5,
+        gt=0,
+        description="Default IQR multiplier for anomaly-mode monitors.",
+    )
+    monitor_default_window_seconds: int = Field(
+        default=900,
+        ge=60,
+        description="Default evaluation window for a new monitor.",
+    )
+    monitor_default_min_samples: int = Field(
+        default=5,
+        ge=1,
+        description="Default minimum samples before a monitor can evaluate.",
+    )
+
     # --- Remediation ---
     remediation_execution_enabled: bool = Field(
         default=False,

@@ -104,6 +104,45 @@ class HealthProbeSnapshot:
     resolved_ip: str | None = None
 
 
+@dataclass
+class MetricMonitorRecord:
+    """A user-defined rule over a signal OpsMind already measures.
+
+    Deliberately narrow: one signal, one comparison, one window, a breach
+    counter and a severity. Expression languages, multi-condition rules, label
+    matchers, silences and notification routing are out of scope, because
+    OpsMind correlates and explains failures rather than replacing Prometheus
+    alerting.
+    """
+
+    monitor_id: str
+    app_id: str
+    name: str
+    # What to watch. All three are derived from data OpsMind already collects.
+    signal_source: str = "probe_latency"  # probe_latency | probe_error_rate | probe_availability
+    mode: str = "threshold"  # threshold | anomaly
+    comparison: str = "gt"  # gt | gte | lt | lte
+    threshold_value: float = 0.0
+    anomaly_method: str = "zscore"  # zscore | iqr
+    window_seconds: int = 900
+    min_samples: int = 5
+    consecutive_breaches_required: int = 2
+    severity: str = "HIGH"
+    enabled: bool = True
+    # Mutable evaluation state.
+    consecutive_breaches: int = 0
+    last_evaluated_at: datetime | None = None
+    last_breached_at: datetime | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+SIGNAL_SOURCES = ("probe_latency", "probe_error_rate", "probe_availability")
+MONITOR_MODES = ("threshold", "anomaly")
+COMPARISONS = ("gt", "gte", "lt", "lte")
+ANOMALY_METHODS = ("zscore", "iqr")
+
+
 class ApplicationRepository(Protocol):
     """Abstract application repository protocol."""
 
@@ -146,6 +185,34 @@ class ApplicationRepository(Protocol):
         limit: int = 500,
     ) -> list[HealthProbeSnapshot]:
         """Return recent probe samples for an application, newest first."""
+        ...
+
+    async def save_monitor(self, monitor: MetricMonitorRecord) -> str:
+        """Persist or update a metric monitor and return monitor_id."""
+        ...
+
+    async def get_monitor(self, monitor_id: str) -> MetricMonitorRecord | None:
+        """Retrieve a metric monitor by ID."""
+        ...
+
+    async def list_monitors(
+        self,
+        app_id: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[MetricMonitorRecord]:
+        """List metric monitors, optionally scoped to one application."""
+        ...
+
+    async def update_monitor(
+        self,
+        monitor_id: str,
+        updates: dict[str, Any],
+    ) -> MetricMonitorRecord | None:
+        """Update specific fields of a metric monitor."""
+        ...
+
+    async def delete_monitor(self, monitor_id: str) -> bool:
+        """Delete a metric monitor by ID."""
         ...
 
 

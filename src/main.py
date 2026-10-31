@@ -19,6 +19,8 @@ from src.api.routes_applications import router as applications_router
 from src.api.routes_incidents import router as incidents_router
 from src.api.routes_logs import router as logs_router
 from src.api.routes_metrics import router as metrics_router
+from src.api.routes_monitors import options_router as monitor_options_router
+from src.api.routes_monitors import router as monitors_router
 from src.api.routes_remediations import router as remediations_router
 from src.api.routes_webhooks import router as webhooks_router
 
@@ -115,6 +117,8 @@ app.include_router(incidents_router)
 app.include_router(applications_router)
 app.include_router(metrics_router)
 app.include_router(remediations_router)
+app.include_router(monitors_router)
+app.include_router(monitor_options_router)
 
 
 @app.get("/api/v1/session", tags=["system"])

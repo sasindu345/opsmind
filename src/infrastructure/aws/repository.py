@@ -11,7 +11,12 @@ from typing import Any
 
 from config.settings import Settings, get_settings
 from src.core.telemetry import TelemetrySignal
-from src.infrastructure.interfaces import ApplicationRecord, HealthProbeSnapshot, IncidentRecord
+from src.infrastructure.interfaces import (
+    ApplicationRecord,
+    HealthProbeSnapshot,
+    IncidentRecord,
+    MetricMonitorRecord,
+)
 from src.llm.schemas import AnalysisResult, IncidentStatus
 
 logger = logging.getLogger("opsmind.infrastructure.dynamodb")
@@ -181,6 +186,7 @@ class DynamoDBApplicationRepository:
         self._dynamodb = None
         self._table = None
         self._probes_table = None
+        self._monitors_table = None
 
     def _get_table(self):
         if self._table is None:
@@ -276,6 +282,139 @@ class DynamoDBApplicationRepository:
         table = self._get_table()
         await asyncio.to_thread(table.delete_item, Key={"app_id": app_id})
         return True
+
+    def _monitors_table_name(self) -> str:
+        return f"{self.table_name}-monitors"
+
+    def _get_monitors_table(self):
+        if getattr(self, "_monitors_table", None) is None:
+            import boto3
+
+            self._monitors_table = boto3.resource("dynamodb", region_name=self.region).Table(
+                self._monitors_table_name()
+            )
+        return self._monitors_table
+
+    async def save_monitor(self, monitor: MetricMonitorRecord) -> str:
+        table = self._get_monitors_table()
+        item: dict[str, Any] = {
+            "monitor_id": monitor.monitor_id,
+            "app_id": monitor.app_id,
+            "name": monitor.name,
+            "signal_source": monitor.signal_source,
+            "mode": monitor.mode,
+            "comparison": monitor.comparison,
+            "threshold_value": Decimal(str(round(monitor.threshold_value, 4))),
+            "anomaly_method": monitor.anomaly_method,
+            "window_seconds": monitor.window_seconds,
+            "min_samples": monitor.min_samples,
+            "consecutive_breaches_required": monitor.consecutive_breaches_required,
+            "severity": monitor.severity,
+            "enabled": monitor.enabled,
+            "consecutive_breaches": monitor.consecutive_breaches,
+            "created_at": monitor.created_at.isoformat(),
+            "updated_at": monitor.updated_at.isoformat(),
+        }
+        if monitor.last_evaluated_at:
+            item["last_evaluated_at"] = monitor.last_evaluated_at.isoformat()
+        if monitor.last_breached_at:
+            item["last_breached_at"] = monitor.last_breached_at.isoformat()
+
+        await asyncio.to_thread(table.put_item, Item=item)
+        return monitor.monitor_id
+
+    async def get_monitor(self, monitor_id: str) -> MetricMonitorRecord | None:
+        table = self._get_monitors_table()
+        response = await asyncio.to_thread(table.get_item, Key={"monitor_id": monitor_id})
+        item = response.get("Item")
+        return self._item_to_monitor(item) if item else None
+
+    async def list_monitors(
+        self,
+        app_id: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[MetricMonitorRecord]:
+        from boto3.dynamodb.conditions import Attr
+
+        table = self._get_monitors_table()
+        scan_kwargs: dict[str, Any] = {}
+        condition = None
+        if app_id:
+            condition = Attr("app_id").eq(app_id)
+        if enabled_only:
+            enabled_condition = Attr("enabled").eq(True)
+            condition = enabled_condition if condition is None else condition & enabled_condition
+        if condition is not None:
+            scan_kwargs["FilterExpression"] = condition
+
+        response = await asyncio.to_thread(table.scan, **scan_kwargs)
+        monitors = [self._item_to_monitor(item) for item in response.get("Items", [])]
+        monitors.sort(key=lambda m: m.created_at)
+        return monitors
+
+    async def update_monitor(
+        self,
+        monitor_id: str,
+        updates: dict[str, Any],
+    ) -> MetricMonitorRecord | None:
+        current = await self.get_monitor(monitor_id)
+        if not current:
+            return None
+
+        allowed = {
+            "name",
+            "signal_source",
+            "mode",
+            "comparison",
+            "threshold_value",
+            "anomaly_method",
+            "window_seconds",
+            "min_samples",
+            "consecutive_breaches_required",
+            "severity",
+            "enabled",
+            "consecutive_breaches",
+            "last_evaluated_at",
+            "last_breached_at",
+        }
+        filtered = {k: v for k, v in updates.items() if k in allowed}
+        if not filtered:
+            return current
+
+        for key, value in filtered.items():
+            setattr(current, key, value)
+        current.updated_at = datetime.now(UTC)
+        await self.save_monitor(current)
+        return current
+
+    async def delete_monitor(self, monitor_id: str) -> bool:
+        table = self._get_monitors_table()
+        await asyncio.to_thread(table.delete_item, Key={"monitor_id": monitor_id})
+        return True
+
+    def _item_to_monitor(self, item: dict[str, Any]) -> MetricMonitorRecord:
+        evaluated = item.get("last_evaluated_at")
+        breached = item.get("last_breached_at")
+        return MetricMonitorRecord(
+            monitor_id=item["monitor_id"],
+            app_id=item["app_id"],
+            name=item["name"],
+            signal_source=item.get("signal_source", "probe_latency"),
+            mode=item.get("mode", "threshold"),
+            comparison=item.get("comparison", "gt"),
+            threshold_value=float(item.get("threshold_value", 0)),
+            anomaly_method=item.get("anomaly_method", "zscore"),
+            window_seconds=int(item.get("window_seconds", 900)),
+            min_samples=int(item.get("min_samples", 5)),
+            consecutive_breaches_required=int(item.get("consecutive_breaches_required", 2)),
+            severity=item.get("severity", "HIGH"),
+            enabled=bool(item.get("enabled", True)),
+            consecutive_breaches=int(item.get("consecutive_breaches", 0)),
+            last_evaluated_at=datetime.fromisoformat(evaluated) if evaluated else None,
+            last_breached_at=datetime.fromisoformat(breached) if breached else None,
+            created_at=datetime.fromisoformat(item["created_at"]),
+            updated_at=datetime.fromisoformat(item["updated_at"]),
+        )
 
     def _probes_table_name(self) -> str:
         return f"{self.table_name}-probes"

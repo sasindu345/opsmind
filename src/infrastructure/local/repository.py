@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import PROJECT_ROOT, Settings, get_settings
-from src.infrastructure.interfaces import ApplicationRecord, HealthProbeSnapshot, IncidentRecord
+from src.infrastructure.interfaces import (
+    ApplicationRecord,
+    HealthProbeSnapshot,
+    IncidentRecord,
+    MetricMonitorRecord,
+)
 from src.llm.schemas import AnalysisResult, IncidentStatus
 
 logger = logging.getLogger("opsmind.infrastructure.sqlite")
@@ -249,6 +254,36 @@ class SQLiteApplicationRepository:
                 ON health_probe_snapshots(app_id, timestamp)
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS metric_monitors (
+                    monitor_id TEXT PRIMARY KEY,
+                    app_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    signal_source TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    comparison TEXT NOT NULL,
+                    threshold_value REAL NOT NULL,
+                    anomaly_method TEXT NOT NULL,
+                    window_seconds INTEGER NOT NULL,
+                    min_samples INTEGER NOT NULL,
+                    consecutive_breaches_required INTEGER NOT NULL,
+                    severity TEXT NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    consecutive_breaches INTEGER DEFAULT 0,
+                    last_evaluated_at TEXT,
+                    last_breached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_metric_monitors_app
+                ON metric_monitors(app_id)
+                """
+            )
             conn.commit()
 
     async def save_application(self, app: ApplicationRecord) -> str:
@@ -356,6 +391,7 @@ class SQLiteApplicationRepository:
         with self._get_connection() as conn:
             cursor = conn.execute("DELETE FROM applications WHERE app_id = ?", (app_id,))
             conn.execute("DELETE FROM health_probe_snapshots WHERE app_id = ?", (app_id,))
+            conn.execute("DELETE FROM metric_monitors WHERE app_id = ?", (app_id,))
             conn.commit()
             return cursor.rowcount > 0
 
@@ -409,6 +445,150 @@ class SQLiteApplicationRepository:
             is_success=bool(row["is_success"]),
             error_message=row["error_message"],
             resolved_ip=row["resolved_ip"],
+        )
+
+    async def save_monitor(self, monitor: MetricMonitorRecord) -> str:
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO metric_monitors (
+                    monitor_id, app_id, name, signal_source, mode, comparison,
+                    threshold_value, anomaly_method, window_seconds, min_samples,
+                    consecutive_breaches_required, severity, enabled,
+                    consecutive_breaches, last_evaluated_at, last_breached_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    monitor.monitor_id,
+                    monitor.app_id,
+                    monitor.name,
+                    monitor.signal_source,
+                    monitor.mode,
+                    monitor.comparison,
+                    monitor.threshold_value,
+                    monitor.anomaly_method,
+                    monitor.window_seconds,
+                    monitor.min_samples,
+                    monitor.consecutive_breaches_required,
+                    monitor.severity,
+                    int(monitor.enabled),
+                    monitor.consecutive_breaches,
+                    monitor.last_evaluated_at.isoformat() if monitor.last_evaluated_at else None,
+                    monitor.last_breached_at.isoformat() if monitor.last_breached_at else None,
+                    monitor.created_at.isoformat(),
+                    monitor.updated_at.isoformat(),
+                ),
+            )
+            conn.commit()
+        return monitor.monitor_id
+
+    async def get_monitor(self, monitor_id: str) -> MetricMonitorRecord | None:
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM metric_monitors WHERE monitor_id = ?",
+                (monitor_id,),
+            )
+            row = cursor.fetchone()
+            return self._row_to_monitor(row) if row else None
+
+    async def list_monitors(
+        self,
+        app_id: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[MetricMonitorRecord]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if app_id:
+            clauses.append("app_id = ?")
+            params.append(app_id)
+        if enabled_only:
+            clauses.append("enabled = 1")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                f"SELECT * FROM metric_monitors {where} ORDER BY created_at ASC",
+                params,
+            )
+            return [self._row_to_monitor(row) for row in cursor.fetchall()]
+
+    async def update_monitor(
+        self,
+        monitor_id: str,
+        updates: dict[str, Any],
+    ) -> MetricMonitorRecord | None:
+        current = await self.get_monitor(monitor_id)
+        if not current:
+            return None
+
+        allowed = {
+            "name",
+            "signal_source",
+            "mode",
+            "comparison",
+            "threshold_value",
+            "anomaly_method",
+            "window_seconds",
+            "min_samples",
+            "consecutive_breaches_required",
+            "severity",
+            "enabled",
+            "consecutive_breaches",
+            "last_evaluated_at",
+            "last_breached_at",
+        }
+        filtered = {k: v for k, v in updates.items() if k in allowed}
+        if not filtered:
+            return current
+
+        if "enabled" in filtered:
+            filtered["enabled"] = int(bool(filtered["enabled"]))
+        for key in ("last_evaluated_at", "last_breached_at"):
+            if isinstance(filtered.get(key), datetime):
+                filtered[key] = filtered[key].isoformat()
+
+        filtered["updated_at"] = datetime.now(UTC).isoformat()
+        set_clauses = [f"{col} = ?" for col in filtered]
+        values = list(filtered.values()) + [monitor_id]
+        with self._get_connection() as conn:
+            conn.execute(
+                f"UPDATE metric_monitors SET {', '.join(set_clauses)} WHERE monitor_id = ?",
+                values,
+            )
+            conn.commit()
+        return await self.get_monitor(monitor_id)
+
+    async def delete_monitor(self, monitor_id: str) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM metric_monitors WHERE monitor_id = ?",
+                (monitor_id,),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def _row_to_monitor(self, row: sqlite3.Row) -> MetricMonitorRecord:
+        evaluated = row["last_evaluated_at"]
+        breached = row["last_breached_at"]
+        return MetricMonitorRecord(
+            monitor_id=row["monitor_id"],
+            app_id=row["app_id"],
+            name=row["name"],
+            signal_source=row["signal_source"],
+            mode=row["mode"],
+            comparison=row["comparison"],
+            threshold_value=float(row["threshold_value"]),
+            anomaly_method=row["anomaly_method"],
+            window_seconds=int(row["window_seconds"]),
+            min_samples=int(row["min_samples"]),
+            consecutive_breaches_required=int(row["consecutive_breaches_required"]),
+            severity=row["severity"],
+            enabled=bool(row["enabled"]),
+            consecutive_breaches=int(row["consecutive_breaches"] or 0),
+            last_evaluated_at=datetime.fromisoformat(evaluated) if evaluated else None,
+            last_breached_at=datetime.fromisoformat(breached) if breached else None,
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
     def _row_to_record(self, row: sqlite3.Row) -> ApplicationRecord:
